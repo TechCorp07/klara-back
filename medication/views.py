@@ -81,6 +81,30 @@ class MedicationViewSet(viewsets.ModelViewSet):
         return Medication.objects.none()
     
     @action(detail=True, methods=['post'])
+    def setup_reminders_from_preferences(self, request, pk=None):
+        """Setup reminders based on patient's notification preferences."""
+        medication = self.get_object()
+        patient_profile = medication.patient.patient_profile
+        
+        if not patient_profile.medication_reminder_enabled:
+            return Response({
+                "detail": "Patient has disabled medication reminders"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Clear existing reminders
+        medication.reminders.all().delete()
+        
+        # Generate new reminders based on preferences
+        from .services.reminders import generate_reminders
+        reminders = generate_reminders(medication)
+        
+        serializer = MedicationReminderSerializer(reminders, many=True)
+        return Response({
+            "detail": f"Created {len(reminders)} reminders",
+            "reminders": serializer.data
+        })
+    
+    @action(detail=True, methods=['post'])
     def schedule_reminder(self, request, pk=None):
         """Create a reminder for this medication."""
         medication = self.get_object()

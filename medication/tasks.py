@@ -16,62 +16,127 @@ User = get_user_model()
 def send_due_reminders():
     """
     Send medication reminders that are due.
-    
-    This task checks for medication reminders that are due to be sent
-    and sends them via the appropriate channels (email, push, SMS).
+    Runs every 10 minutes to ensure timely delivery.
     """
-    # Import here to avoid circular imports
-    from .services.reminders import check_due_reminders
+    from .models import MedicationReminder
+    from .services.reminders import send_reminder
     
-    logger.info("Starting medication reminder check")
+    logger.info("Checking for due medication reminders")
     
-    try:
-        # Send reminders
-        sent_count = check_due_reminders()
-        logger.info(f"Sent {sent_count} medication reminders")
-        return f"Sent {sent_count} medication reminders"
+    now = timezone.now()
     
-    except Exception as e:
-        logger.error(f"Error sending medication reminders: {str(e)}")
-        return f"Error sending medication reminders: {str(e)}"
+    # Get due reminders
+    due_reminders = MedicationReminder.objects.filter(
+        is_active=True,
+        scheduled_time__lte=now,
+        medication__active=True
+    ).select_related('medication', 'patient')
+    
+    sent_count = 0
+    failed_count = 0
+    
+    for reminder in due_reminders:
+        try:
+            if send_reminder(reminder):
+                sent_count += 1
+            else:
+                failed_count += 1
+        except Exception as e:
+            logger.error(f"Error sending reminder {reminder.id}: {str(e)}")
+            failed_count += 1
+    
+    logger.info(f"Sent {sent_count} reminders, {failed_count} failed")
+    return f"Sent {sent_count} reminders, {failed_count} failed"
 
-
-@shared_task
+@shared_task 
 def check_missed_doses():
     """
-    Check for missed medication doses.
-    
-    This task checks for scheduled medication intakes that haven't been 
-    marked as taken or skipped and updates them as missed.
+    Check for missed medication doses and update intake records.
     """
-    # Import models here to avoid circular imports
-    from .models import MedicationIntake
+    from .models import MedicationIntake, MedicationReminder
     
-    logger.info("Starting missed doses check")
+    logger.info("Checking for missed medication doses")
     
-    try:
-        # Get current time
-        now = timezone.now()
-        
-        # Define the grace period (e.g., 1 hour after scheduled time)
-        grace_period = timedelta(hours=1)
-        
-        # Find intakes that are past due and not taken or skipped
-        missed_intakes = MedicationIntake.objects.filter(
-            Q(status='missed') | Q(status='rescheduled'),
-            scheduled_time__lt=now - grace_period
-        )
-        
-        # Update them as missed
-        missed_count = missed_intakes.update(status='missed')
-        
-        logger.info(f"Marked {missed_count} doses as missed")
-        return f"Marked {missed_count} doses as missed"
+    now = timezone.now()
+    grace_period = timedelta(hours=2)  # 2-hour grace period
     
-    except Exception as e:
-        logger.error(f"Error checking missed doses: {str(e)}")
-        return f"Error checking missed doses: {str(e)}"
+    # Find scheduled intakes that are overdue
+    overdue_time = now - grace_period
+    
+    # Update missed doses
+    missed_intakes = MedicationIntake.objects.filter(
+        scheduled_time__lt=overdue_time,
+        status=MedicationIntake.Status.MISSED,
+        actual_time__isnull=True
+    )
+    
+    missed_count = 0
+    for intake in missed_intakes:
+        # For critical rare disease medications, escalate
+        if intake.medication.for_rare_condition:
+            _escalate_missed_critical_dose(intake)
+        missed_count += 1
+    
+    logger.info(f"Processed {missed_count} missed doses")
+    return f"Processed {missed_count} missed doses"
 
+def _escalate_missed_critical_dose(intake):
+    """Escalate missed critical doses to providers."""
+    from communication.tasks import send_missed_dose_alert
+    
+    if intake.medication.prescriber:
+        send_missed_dose_alert.delay(
+            provider_id=intake.medication.prescriber.id,
+            patient_id=intake.medication.patient.id,
+            medication_id=intake.medication.id,
+            missed_time=intake.scheduled_time.isoformat()
+        )
+
+@shared_task
+def generate_medication_schedules():
+    """Generate medication intake schedules for active medications."""
+    from .models import Medication, MedicationIntake
+    from datetime import date, timedelta
+    
+    logger.info("Generating medication schedules")
+    
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+    
+    # Get active medications
+    active_medications = Medication.objects.filter(active=True)
+    
+    schedules_created = 0
+    
+    for medication in active_medications:
+        # Parse schedule
+        schedule = medication.adherence_schedule or {'frequency': 'daily', 'times': ['08:00']}
+        times = schedule.get('times', ['08:00'])
+        
+        for time_str in times:
+            # Parse time
+            try:
+                time_obj = datetime.strptime(time_str, '%H:%M').time()
+                scheduled_datetime = timezone.make_aware(datetime.combine(tomorrow, time_obj))
+                
+                # Create intake record if it doesn't exist
+                intake, created = MedicationIntake.objects.get_or_create(
+                    medication=medication,
+                    scheduled_time=scheduled_datetime,
+                    defaults={
+                        'status': MedicationIntake.Status.MISSED,
+                        'recorded_via': 'system'
+                    }
+                )
+                
+                if created:
+                    schedules_created += 1
+                    
+            except ValueError:
+                logger.error(f"Invalid time format for medication {medication.id}: {time_str}")
+    
+    logger.info(f"Created {schedules_created} new medication schedules")
+    return f"Created {schedules_created} new medication schedules"
 
 @shared_task
 def update_adherence_records():
@@ -225,184 +290,3 @@ def check_expiring_prescriptions():
         logger.error(f"Error checking expiring prescriptions: {str(e)}")
         return f"Error checking expiring prescriptions: {str(e)}"
 
-
-@shared_task
-def generate_medication_schedules():
-    """
-    Generate medication intake schedules for active medications.
-    
-    This task creates scheduled intake events for medications based on
-    their frequencies and specific times.
-    """
-    # Import models here to avoid circular imports
-    from .models import Medication, MedicationIntake
-    
-    logger.info("Starting medication schedule generation")
-    
-    try:
-        # Get active medications
-        active_medications = Medication.objects.filter(active=True)
-        
-        # Track how many schedules we create
-        created_count = 0
-        
-        # Current time and date
-        now = timezone.now()
-        today = now.date()
-        
-        # Look ahead period (e.g., 7 days)
-        look_ahead_days = 7
-        end_date = today + timedelta(days=look_ahead_days)
-        
-        for medication in active_medications:
-            try:
-                # Skip medications with end dates in the past
-                if medication.end_date and medication.end_date < today and not medication.ongoing:
-                    continue
-                
-                # Get existing intakes in the look-ahead period
-                existing_intakes = MedicationIntake.objects.filter(
-                    medication=medication,
-                    scheduled_time__date__gte=today,
-                    scheduled_time__date__lte=end_date
-                )
-                
-                # Skip if we already have scheduled intakes for this period
-                if existing_intakes.exists():
-                    continue
-                
-                # Generate intake schedule based on frequency
-                if medication.frequency_unit == 'daily':
-                    # Daily medication
-                    specific_times = medication.specific_times or []
-                    
-                    if not specific_times and medication.times_per_frequency > 0:
-                        # No specific times set, create evenly spaced intakes
-                        # Start at 8 AM by default
-                        start_hour = 8
-                        hours_between = 24 // medication.times_per_frequency
-                        
-                        for i in range(medication.times_per_frequency):
-                            hour = (start_hour + i * hours_between) % 24
-                            specific_times.append(f"{hour:02d}:00")
-                    
-                    # Create intakes for each day and time
-                    for day in range(look_ahead_days):
-                        intake_date = today + timedelta(days=day)
-                        
-                        # Skip if medication ends before this date
-                        if medication.end_date and medication.end_date < intake_date and not medication.ongoing:
-                            continue
-                        
-                        for time_str in specific_times:
-                            try:
-                                # Parse time string
-                                hour, minute = map(int, time_str.split(':'))
-                                
-                                # Create scheduled time
-                                scheduled_time = timezone.make_aware(
-                                    datetime.combine(intake_date, datetime.min.time()) + 
-                                    timedelta(hours=hour, minutes=minute)
-                                )
-                                
-                                # Skip times in the past
-                                if scheduled_time < now:
-                                    continue
-                                
-                                # Create intake
-                                intake = MedicationIntake.objects.create(
-                                    medication=medication,
-                                    scheduled_time=scheduled_time,
-                                    status='missed'  # Initially missed, will be updated when taken
-                                )
-                                
-                                created_count += 1
-                                
-                            except ValueError:
-                                logger.error(f"Invalid time format: {time_str}")
-                
-                elif medication.frequency_unit == 'weekly':
-                    # Weekly medication
-                    days = medication.specific_times or [0]  # Default to Monday (0)
-                    hour = 8  # Default to 8 AM
-                    
-                    for day_of_week in days:
-                        # Find next occurrence of this day
-                        days_ahead = (day_of_week - today.weekday()) % 7
-                        
-                        # Skip if it's beyond our look-ahead period
-                        if days_ahead >= look_ahead_days:
-                            continue
-                        
-                        intake_date = today + timedelta(days=days_ahead)
-                        
-                        # Skip if medication ends before this date
-                        if medication.end_date and medication.end_date < intake_date and not medication.ongoing:
-                            continue
-                        
-                        # Create scheduled time
-                        scheduled_time = timezone.make_aware(
-                            datetime.combine(intake_date, datetime.min.time()) + 
-                            timedelta(hours=hour)
-                        )
-                        
-                        # Skip times in the past
-                        if scheduled_time < now:
-                            continue
-                        
-                        # Create intake
-                        intake = MedicationIntake.objects.create(
-                            medication=medication,
-                            scheduled_time=scheduled_time,
-                            status='missed'  # Initially missed, will be updated when taken
-                        )
-                        
-                        created_count += 1
-                
-                elif medication.frequency_unit == 'monthly':
-                    # Monthly medication
-                    day = medication.specific_times[0] if medication.specific_times else 1  # Default to 1st day
-                    hour = 8  # Default to 8 AM
-                    
-                    # Check if day exists in current month
-                    month_days = [31, 29 if today.year % 4 == 0 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-                    day = min(day, month_days[today.month - 1])
-                    
-                    # Skip if day has already passed this month
-                    if day < today.day:
-                        continue
-                    
-                    intake_date = today.replace(day=day)
-                    
-                    # Skip if medication ends before this date
-                    if medication.end_date and medication.end_date < intake_date and not medication.ongoing:
-                        continue
-                    
-                    # Create scheduled time
-                    scheduled_time = timezone.make_aware(
-                        datetime.combine(intake_date, datetime.min.time()) + 
-                        timedelta(hours=hour)
-                    )
-                    
-                    # Skip times in the past
-                    if scheduled_time < now:
-                        continue
-                    
-                    # Create intake
-                    intake = MedicationIntake.objects.create(
-                        medication=medication,
-                        scheduled_time=scheduled_time,
-                        status='missed'  # Initially missed, will be updated when taken
-                    )
-                    
-                    created_count += 1
-                
-            except Exception as med_error:
-                logger.error(f"Error generating schedule for medication {medication.id}: {str(med_error)}")
-        
-        logger.info(f"Created {created_count} scheduled medication intakes")
-        return f"Created {created_count} scheduled medication intakes"
-    
-    except Exception as e:
-        logger.error(f"Error generating medication schedules: {str(e)}")
-        return f"Error generating medication schedules: {str(e)}"

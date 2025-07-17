@@ -59,6 +59,37 @@ class Medication(models.Model):
     times_per_frequency = models.PositiveSmallIntegerField(default=1)
     specific_times = encrypt(models.JSONField(blank=True, null=True, help_text="JSON array of specific times for medication"))
     
+    # Enhanced rare disease fields
+    clinical_trial_id = models.CharField(max_length=100, blank=True, null=True, help_text="Associated clinical trial ID")
+    protocol_number = models.CharField(max_length=100, blank=True, null=True, help_text="Custom drug protocol number")
+    manufacturing_batch = models.CharField(max_length=100, blank=True, null=True, help_text="Batch number for custom drugs")
+    
+    # Enhanced monitoring for rare diseases
+    requires_lab_monitoring = models.BooleanField(default=False)
+    lab_monitoring_frequency = models.CharField(
+        max_length=20,
+        choices=[
+            ('weekly', 'Weekly'),
+            ('biweekly', 'Bi-weekly'),
+            ('monthly', 'Monthly'),
+            ('quarterly', 'Quarterly'),
+        ],
+        blank=True, null=True
+    )
+    
+    # Temperature and storage requirements for specialized drugs
+    storage_temperature = models.CharField(max_length=50, blank=True, help_text="e.g., 'Store at 2-8°C'")
+    special_handling_instructions = models.TextField(blank=True)
+    
+    # Cost tracking for rare disease medications
+    cost_per_dose = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    insurance_coverage = models.BooleanField(default=False)
+    prior_authorization_required = models.BooleanField(default=False)
+    
+    # Efficacy tracking
+    efficacy_markers = models.JSONField(default=list, help_text="Biomarkers to track for efficacy")
+    baseline_measurements = models.JSONField(default=dict, help_text="Baseline measurements before starting")
+    
     # Duration
     start_date = encrypt(models.DateField())
     end_date = encrypt(models.DateField(blank=True, null=True))
@@ -361,6 +392,20 @@ class MedicationReminder(models.Model):
     send_email = models.BooleanField(default=True)
     send_push = models.BooleanField(default=True)
     send_sms = models.BooleanField(default=False)
+    
+    # Smartwatch integration
+    send_smartwatch = models.BooleanField(default=False)
+    smartwatch_delivery_confirmed = models.BooleanField(default=False)
+    
+    # Enhanced for rare diseases
+    is_critical = models.BooleanField(default=False, help_text="Critical reminder for rare disease medication")
+    escalation_enabled = models.BooleanField(default=False, help_text="Escalate to provider if missed")
+    escalation_delay_minutes = models.PositiveIntegerField(default=60, help_text="Minutes before escalating")
+    
+    # Tracking
+    times_sent = models.PositiveIntegerField(default=0)
+    patient_acknowledged = models.BooleanField(default=False)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
     
     # Meta information
     created_at = models.DateTimeField(auto_now_add=True)
