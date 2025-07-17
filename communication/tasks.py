@@ -1,9 +1,10 @@
-from __future__ import absolute_import, unicode_literals
 from celery import shared_task
+from __future__ import absolute_import, unicode_literals
 import logging
 from django.utils import timezone
 from datetime import timedelta
 from django.db.models import F, Count, Q
+from .services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
 
@@ -264,3 +265,25 @@ def sync_conversations_with_healthcare_events():
     except Exception as e:
         logger.error(f"Failed to sync conversations with healthcare events: {str(e)}")
         return f"Failed to sync conversations with healthcare events: {str(e)}"
+
+@shared_task
+def send_delayed_notification(user_id, title, message, notification_type, delay_minutes=0):
+    """Send notification after specified delay."""
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    
+    try:
+        user = User.objects.get(id=user_id)
+        notification_service = NotificationService()
+        
+        notification_service.create_notification(
+            user=user,
+            title=title,
+            message=message,
+            notification_type=notification_type
+        )
+        
+        return True
+    except Exception as e:
+        logger.error(f"Delayed notification failed: {str(e)}")
+        return False

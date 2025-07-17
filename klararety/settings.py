@@ -100,7 +100,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'klararety.wsgi.application'
-ASGI_APPLICATION = 'klararety.asgi.application'
+ASGI_APPLICATION = 'klararety.routing.application'
 
 # Custom user model
 AUTH_USER_MODEL = 'users.User'
@@ -355,6 +355,16 @@ SECURITY_SETTINGS = {
     'ENABLE_IP_RESTRICTION': False,   # Set to True to enable IP-based restrictions
     'ENABLE_DEVICE_TRACKING': True,   # Track user devices for security
     'ENABLE_SUSPICIOUS_ACTIVITY_DETECTION': True,
+}
+
+# Communication settings
+COMMUNICATION_SETTINGS = {
+    'ENABLE_REAL_TIME_CHAT': env.bool('ENABLE_REAL_TIME_CHAT', default=True),
+    'MAX_MESSAGE_LENGTH': env.int('MAX_MESSAGE_LENGTH', default=5000),
+    'MESSAGE_RETENTION_DAYS': env.int('MESSAGE_RETENTION_DAYS', default=2555),  # 7 years for HIPAA
+    'ENABLE_MESSAGE_ENCRYPTION': env.bool('ENABLE_MESSAGE_ENCRYPTION', default=True),
+    'CRITICAL_ALERT_CHANNELS': ['email', 'sms', 'push', 'smartwatch'],
+    'AUTO_ARCHIVE_CONVERSATIONS': env.bool('AUTO_ARCHIVE_CONVERSATIONS', default=True),
 }
 
 # Logging configuration

@@ -199,3 +199,41 @@ class MessageSearchSerializer(serializers.Serializer):
     start_date = serializers.DateTimeField(required=False)
     end_date = serializers.DateTimeField(required=False)
     sender_id = serializers.IntegerField(required=False)
+
+class BulkCriticalAlertSerializer(serializers.Serializer):
+    """Serializer for sending bulk critical alerts."""
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=True,
+        help_text="List of user IDs to send alerts to"
+    )
+    title = serializers.CharField(
+        max_length=255,
+        required=True,
+        help_text="Alert title"
+    )
+    message = serializers.CharField(
+        required=True,
+        help_text="Alert message content"
+    )
+    alert_type = serializers.ChoiceField(
+        choices=[
+            ('MEDICATION', 'Medication Alert'),
+            ('APPOINTMENT', 'Appointment Alert'),
+            ('SYSTEM', 'System Alert'),
+            ('EMERGENCY', 'Emergency Alert'),
+            ('GENERAL', 'General Alert')
+        ],
+        default='GENERAL',
+        required=False,
+        help_text="Type of alert being sent"
+    )
+    
+    def validate_user_ids(self, value):
+        """Validate that all user IDs exist."""
+        existing_users = User.objects.filter(id__in=value)
+        if len(existing_users) != len(value):
+            missing_ids = set(value) - set(user.id for user in existing_users)
+            raise serializers.ValidationError(f"Users with IDs {missing_ids} do not exist")
+        return value
+

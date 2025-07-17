@@ -3,6 +3,25 @@ from django.conf import settings
 
 class Conversation(models.Model):
     """Model for conversations between users."""
+    
+    class ConversationType(models.TextChoices):
+        GENERAL = 'general', 'General Chat'
+        MEDICAL_CONSULTATION = 'medical_consultation', 'Medical Consultation'
+        MEDICATION_SUPPORT = 'medication_support', 'Medication Support'
+        CAREGIVER_COORDINATION = 'caregiver_coordination', 'Caregiver Coordination'
+        RESEARCH_PARTICIPATION = 'research_participation', 'Research Participation'
+        EMERGENCY = 'emergency', 'Emergency Communication'
+        RARE_DISEASE_SUPPORT = 'rare_disease_support', 'Rare Disease Support Group'
+
+    conversation_type = models.CharField(
+        max_length=30,
+        choices=ConversationType.choices,
+        default=ConversationType.GENERAL
+    )
+    is_emergency = models.BooleanField(default=False)
+    encryption_enabled = models.BooleanField(default=True)  # For PHI compliance
+    auto_archive_days = models.IntegerField(default=365)  # HIPAA retention
+
     participants = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='conversations')
     title = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

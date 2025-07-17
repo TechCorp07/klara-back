@@ -238,3 +238,98 @@ def send_bulk_notifications(users, title, message, notification_type, related_ob
                 logger.warning(f"Email notification failed for user {user.id}: {str(e)}")
     
     return len(created)
+
+
+def send_critical_rare_disease_alert(self, user, medication_name, severity_level='HIGH'):
+    """Send critical alerts for rare disease patients."""
+    try:
+        # Create notification
+        notification = self.create_notification(
+            user=user,
+            title=f"CRITICAL: {medication_name} Alert",
+            message=f"Immediate attention required for {medication_name}. Contact your provider.",
+            notification_type='system',
+            priority='CRITICAL'
+        )
+        
+        # Send via all available channels for critical alerts
+        channels_sent = []
+        
+        # Email
+        if self.send_email_notification(user, notification):
+            channels_sent.append('email')
+        
+        # SMS
+        if user.phone_number and self.send_sms_notification(user, notification):
+            channels_sent.append('sms')
+        
+        # Push notification
+        if self.send_push_notification(user, notification):
+            channels_sent.append('push')
+        
+        # Smartwatch (if available)
+        if hasattr(user, 'patient_profile') and user.patient_profile.smartwatch_integration_active:
+            from wearables.services.notification_service import WearableNotificationService
+            WearableNotificationService.send_critical_alert(user, medication_name, severity_level)
+            channels_sent.append('smartwatch')
+        
+        return len(channels_sent) > 0
+        
+    except Exception as e:
+        logger.error(f"Failed to send critical alert: {str(e)}")
+        return False
+
+
+def notify_care_team_emergency(self, patient, emergency_type, details):
+    """Notify entire care team of patient emergency."""
+    care_team = self._get_care_team(patient)
+    
+    for team_member in care_team:
+        self.send_emergency_notification(
+            user=team_member,
+            patient=patient,
+            emergency_type=emergency_type,
+            details=details
+        )
+
+
+def send_sms_notification(self, user, notification):
+    """Send SMS notification via configured provider."""
+    try:
+        if not user.phone_number:
+            return False
+            
+        from django.conf import settings
+        
+        if settings.SMS_PROVIDER == 'twilio':
+            return self._send_twilio_sms(user.phone_number, notification.message)
+        elif settings.SMS_PROVIDER == 'vonage':
+            return self._send_vonage_sms(user.phone_number, notification.message)
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"SMS notification failed: {str(e)}")
+        return False
+
+
+def _send_twilio_sms(self, phone_number, message):
+    """Send SMS via Twilio."""
+    try:
+        from twilio.rest import Client
+        from django.conf import settings
+        
+        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        
+        message = client.messages.create(
+            body=message,
+            from_=settings.TWILIO_PHONE_NUMBER,
+            to=phone_number
+        )
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Twilio SMS failed: {str(e)}")
+        return False
+

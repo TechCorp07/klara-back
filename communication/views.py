@@ -1,5 +1,6 @@
 import logging
 from django.utils import timezone
+from django.contrib.auth import get_user_model
 from django.db.models import Q, Count, Prefetch, F
 from rest_framework import viewsets, status, filters, permissions
 from rest_framework.decorators import action
@@ -10,7 +11,7 @@ from .filters import ConversationFilterSet, MessageFilterSet, NotificationFilter
 
 from .models import Conversation, Message, Notification
 from .serializers import (
-    ConversationSerializer, MessageSerializer, NotificationSerializer,
+    BulkCriticalAlertSerializer, ConversationSerializer, MessageSerializer, NotificationSerializer,
     ConversationDetailSerializer, MarkMessagesReadSerializer,
     CreateConversationSerializer, CreateMessageSerializer
 )
@@ -24,6 +25,7 @@ from .services.message_service import (
 )
 from .services.notification_service import mark_notification_as_read
 
+User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
@@ -168,9 +170,6 @@ class ConversationViewSet(viewsets.ModelViewSet):
             user_id = serializer.validated_data.get('user_id')
             
             try:
-                from django.contrib.auth import get_user_model
-                User = get_user_model()
-                
                 user = User.objects.get(id=user_id)
                 add_participant_to_conversation(conversation, user)
                 
@@ -203,9 +202,6 @@ class ConversationViewSet(viewsets.ModelViewSet):
             user_id = serializer.validated_data.get('user_id')
             
             try:
-                from django.contrib.auth import get_user_model
-                User = get_user_model()
-                
                 user = User.objects.get(id=user_id)
                 remove_participant_from_conversation(conversation, user)
                 
@@ -352,6 +348,37 @@ class NotificationViewSet(viewsets.ModelViewSet):
             'status': 'all notifications marked as read',
             'count': unread_count
         })
+    
+    @action(detail=False, methods=['post'])
+    def send_bulk_critical_alert(self, request):
+        """Send critical alerts to multiple users (admin only)."""
+        if not request.user.is_staff:
+            return Response({'error': 'Admin access required'}, status=403)
+        
+        serializer = BulkCriticalAlertSerializer(data=request.data)
+        if serializer.is_valid():
+            user_ids = serializer.validated_data['user_ids']
+            message = serializer.validated_data['message']
+            title = serializer.validated_data['title']
+            alert_type = serializer.validated_data.get('alert_type', 'GENERAL')
+            
+            from .services.notification_service import send_bulk_critical_alerts
+            
+            success_count = send_bulk_critical_alerts(
+                user_ids=user_ids,
+                title=title,
+                message=message,
+                alert_type=alert_type,
+                sender=request.user
+            )
+            
+            return Response({
+                'success': True,
+                'alerts_sent': success_count,
+                'total_users': len(user_ids)
+            })
+        
+        return Response(serializer.errors, status=400)
     
     @action(detail=False, methods=['get'])
     def unread(self, request):
