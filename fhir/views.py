@@ -5,7 +5,7 @@ Provides API endpoints for all FHIR resource types.
 from rest_framework import viewsets, status, permissions
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from django.http import Http404
+from django.contrib.auth import get_user_model
 import json
 import logging
 
@@ -30,8 +30,8 @@ from fhir.serializers import (
     FHIREncounterSerializer
 )
 
+User = get_user_model()
 logger = logging.getLogger('fhir')
-
 
 class FHIRBaseViewSet(viewsets.ModelViewSet):
     resource_type = None
@@ -236,6 +236,102 @@ class FHIRPatientViewSet(FHIRBaseViewSet):
     serializer_class = FHIRPatientSerializer
     permission_classes = [permissions.IsAuthenticated]
     resource_type = "Patient"
+    
+    @action(detail=False, methods=['post'])
+    def request_patient_data(self, request):
+        """Initiate patient data request from external systems."""
+        if request.user.role not in ['patient', 'provider']:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        # For patients requesting their own data
+        if request.user.role == 'patient':
+            patient = request.user
+            provider = None
+        else:
+            # Provider requesting on behalf of patient
+            patient_id = request.data.get('patient_id')
+            if not patient_id:
+                return Response({'error': 'patient_id required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                patient = User.objects.get(id=patient_id, role='patient')
+                provider = request.user
+            except User.DoesNotExist:
+                return Response({'error': 'Patient not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Validate request data
+        data_types = request.data.get('data_types', ['all'])
+        external_systems = request.data.get('external_systems', [])
+        date_range_start = request.data.get('date_range_start')
+        date_range_end = request.data.get('date_range_end')
+        
+        # Initiate data request
+        from .services.patient_data_request import PatientDataRequestService
+        
+        result = PatientDataRequestService.initiate_data_request(
+            patient=patient,
+            provider=provider or patient,  # Patient can be their own "provider" for self-requests
+            data_types=data_types,
+            date_range_start=date_range_start,
+            date_range_end=date_range_end,
+            external_systems=external_systems
+        )
+        
+        if result['success']:
+            return Response(result, status=status.HTTP_202_ACCEPTED)
+        else:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'])
+    def request_family_history(self, request):
+        """Request family history data for genetic analysis."""
+        if request.user.role not in ['patient', 'provider']:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Similar logic to request_patient_data but for family history
+        family_members = request.data.get('family_members', [])
+        
+        if not family_members:
+            return Response({'error': 'family_members required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate family member data structure
+        required_fields = ['relationship', 'has_medical_records']
+        for member in family_members:
+            for field in required_fields:
+                if field not in member:
+                    return Response(
+                        {'error': f'Missing {field} in family member data'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+        
+        from .services.patient_data_request import PatientDataRequestService
+        
+        result = PatientDataRequestService.request_family_history_data(
+            patient=request.user if request.user.role == 'patient' else User.objects.get(id=request.data['patient_id']),
+            provider=request.user if request.user.role == 'provider' else request.user,
+            family_members=family_members
+        )
+        
+        if result['success']:
+            return Response(result, status=status.HTTP_202_ACCEPTED)
+        else:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['get'])
+    def data_request_status(self, request):
+        """Get status of data request."""
+        request_id = request.query_params.get('request_id')
+        if not request_id:
+            return Response({'error': 'request_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        from .services.patient_data_request import PatientDataRequestService
+        
+        status_info = PatientDataRequestService.get_request_status(request_id)
+        
+        if 'error' in status_info:
+            return Response(status_info, status=status.HTTP_404_NOT_FOUND)
+        
+        return Response(status_info)
     
     def _parse_search_param(self, param, value):
         filter_kwargs = {}
