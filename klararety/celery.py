@@ -172,6 +172,32 @@ app.conf.beat_schedule = {
         'schedule': 604800.0,  # Weekly
     },
     
+        # Security tasks
+    'threat-detection-scan': {
+        'task': 'security.tasks.run_threat_detection_scan',
+        'schedule': 1800.0,  # Every 30 minutes
+    },
+    'system-integrity-check': {
+        'task': 'security.tasks.check_system_integrity',
+        'schedule': 3600.0,  # Every hour
+    },
+    'network-traffic-monitoring': {
+        'task': 'security.tasks.monitor_network_traffic',
+        'schedule': 900.0,  # Every 15 minutes
+    },
+    'security-health-check': {
+        'task': 'security.tasks.security_health_check',
+        'schedule': 3600.0,  # Every hour
+    },
+    'daily-security-summary': {
+        'task': 'security.tasks.generate_daily_security_summary',
+        'schedule': 86400.0,  # Daily
+    },
+    'weekly-security-cleanup': {
+        'task': 'security.tasks.cleanup_old_security_data',
+        'schedule': 604800.0,  # Weekly
+    },
+    
 }
 
 # Configure task time limits

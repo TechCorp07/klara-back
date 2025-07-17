@@ -62,6 +62,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'security.middleware.SecurityResponseMiddleware',
     'users.jwt_middleware.SecurityHeadersMiddleware',  # Add security headers
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'security.middleware.SecurityMiddleware',  # Custom security middleware
@@ -79,6 +80,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_otp.middleware.OTPMiddleware',  # 2FA middleware
     'audit.middleware.AuditMiddleware',  # Audit logging
+    'security.middleware.SecurityMonitoringMiddleware',
 ]
 
 ROOT_URLCONF = 'klararety.urls'
@@ -315,16 +317,8 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_BROWSER_XSS_FILTER = True
 X_FRAME_OPTIONS = 'DENY'
 
-# Vulnerability scanning settings
-SECURITY_SCAN_OUTPUT_DIR = os.path.join(BASE_DIR, 'security_scans')
-ZAP_API_KEY = env('ZAP_API_KEY', default='')
-DOCKER_IMAGE = env('DOCKER_IMAGE', default='klararety/backend:latest')
-API_URL = env('API_URL', default='https://api.klararety.com/api/')
-API_SPEC = os.path.join(BASE_DIR, 'docs', 'api_spec.yaml')
-
 # Create necessary directories
 os.makedirs(os.path.join(BASE_DIR, 'logs'), exist_ok=True)
-os.makedirs(SECURITY_SCAN_OUTPUT_DIR, exist_ok=True)
 
 # HIPAA Audit Logging
 HIPAA_LOG_PATH = env('HIPAA_AUDIT_LOG_PATH', default=os.path.join(BASE_DIR, 'logs/hipaa_audit.log'))
@@ -348,6 +342,51 @@ EMAIL_SETTINGS = {
     'SUPPORT_EMAIL': 'support@klararety.com',
     'NO_REPLY_EMAIL': 'noreply@klararety.com',
 }
+
+# Security Module Configuration
+SECURITY_MONITORING_ENABLED = True
+SECURITY_RATE_LIMITING_ENABLED = True
+SECURITY_THREAT_DETECTION_ENABLED = True
+SECURITY_BLOCK_SUSPICIOUS_PATTERNS = False  # Set to True for production
+SECURITY_AUTO_START_MONITORING = True
+
+# Security Rate Limits
+SECURITY_RATE_LIMITS = {
+    'requests_per_minute': 60,
+    'failed_logins_per_hour': 10,
+    'api_calls_per_minute': 100
+}
+
+# Security Alert Recipients
+SECURITY_ADMIN_EMAILS = [
+    'security@klararety.com',
+    'admin@klararety.com'
+]
+
+SECURITY_MANAGEMENT_EMAILS = [
+    'management@klararety.com'
+]
+
+SECURITY_ESCALATION_EMAILS = [
+    'escalation@klararety.com'
+]
+
+# Compliance Report Recipients
+COMPLIANCE_MANAGEMENT_EMAILS = [
+    'compliance@klararety.com'
+]
+
+# Data Retention Periods (in days)
+SECURITY_THREAT_RETENTION_DAYS = 365
+SECURITY_INCIDENT_RETENTION_DAYS = 2190  # 6 years for HIPAA
+NETWORK_MONITOR_RETENTION_DAYS = 90
+FILE_MONITOR_RETENTION_DAYS = 90
+
+# Vulnerability scanning settings
+SECURITY_SCAN_OUTPUT_DIR = os.path.join(BASE_DIR, 'security_scans')
+os.makedirs(SECURITY_SCAN_OUTPUT_DIR, exist_ok=True)
+ZAP_API_KEY = env('ZAP_API_KEY', default='')
+ZAP_PROXY_URL = env('ZAP_PROXY_URL', default='http://localhost:8080')
 
 # Security Settings
 SECURITY_SETTINGS = {

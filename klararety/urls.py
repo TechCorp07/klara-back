@@ -34,6 +34,7 @@ urlpatterns = [
     path('api/audit/', include('audit.urls')),
     path('api/community/', include('community.urls')),
     path('api/fhir/', include('fhir.urls')),
+    path('api/security/', include('security.urls')),
     path('api/reports/', include('reports.urls')),
     
     # API documentation
