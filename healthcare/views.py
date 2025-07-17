@@ -27,7 +27,7 @@ from .permissions import (
     CanViewAuditLogs, IsProviderForReferral
 )
 
-from users.permissions import IsApprovedUser as UserApprovalCheck
+from users.permissions import IsApprovedUser
 
 User = get_user_model()
 
@@ -167,6 +167,92 @@ class MedicalRecordViewSet(BaseHealthcareViewSet):
             return queryset
             
         return MedicalRecord.objects.none()
+    
+    @action(detail=False, methods=['get'])
+    def patient_dashboard(self, request):
+        """Get comprehensive patient dashboard data."""
+        if request.user.role != 'patient':
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        days = int(request.query_params.get('days', 30))
+        
+        from .services.dashboard_service import HealthcareDashboardService
+        
+        dashboard_data = HealthcareDashboardService.get_patient_dashboard_data(
+            patient=request.user,
+            days=days
+        )
+        
+        if 'error' in dashboard_data:
+            return Response(dashboard_data, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response(dashboard_data)
+
+    @action(detail=False, methods=['get'])
+    def provider_dashboard(self, request):
+        """Get provider dashboard data."""
+        if request.user.role != 'provider':
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        days = int(request.query_params.get('days', 30))
+        
+        from .services.dashboard_service import HealthcareDashboardService
+        
+        dashboard_data = HealthcareDashboardService.get_provider_dashboard_data(
+            provider=request.user,
+            days=days
+        )
+        
+        if 'error' in dashboard_data:
+            return Response(dashboard_data, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response(dashboard_data)
+
+    @action(detail=False, methods=['get'])
+    def pharmco_dashboard(self, request):
+        """Get pharmaceutical company dashboard data."""
+        if request.user.role != 'pharmco':
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        days = int(request.query_params.get('days', 30))
+        
+        from .services.dashboard_service import HealthcareDashboardService
+        
+        dashboard_data = HealthcareDashboardService.get_pharmco_dashboard_data(
+            pharmco_user=request.user,
+            days=days
+        )
+        
+        if 'error' in dashboard_data:
+            return Response(dashboard_data, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response(dashboard_data)
+
+    @action(detail=True, methods=['get'])
+    def rare_disease_monitoring(self, request, pk=None):
+        """Get detailed rare disease monitoring data for a patient."""
+        if request.user.role not in ['provider', 'pharmco', 'admin']:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        medical_record = self.get_object()
+        condition_id = request.query_params.get('condition_id')
+        days = int(request.query_params.get('days', 90))
+        
+        if not condition_id:
+            return Response({'error': 'condition_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        from .services.rare_disease_monitoring import RareDiseaseMonitoringService
+        
+        monitoring_data = RareDiseaseMonitoringService.monitor_patient_progression(
+            patient_id=str(medical_record.patient.id),
+            condition_id=condition_id,
+            days=days
+        )
+        
+        if 'error' in monitoring_data:
+            return Response(monitoring_data, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response(monitoring_data)
     
     @action(detail=True, methods=['get'])
     def summary(self, request, pk=None):
