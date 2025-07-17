@@ -309,3 +309,125 @@ def refresh_dashboard_widgets():
         'widgets_refreshed': refresh_count,
         'total_eligible': widgets_to_refresh.count()
     }
+
+@shared_task
+def generate_critical_alerts_report():
+    """Generate and send critical alerts report for rare disease patients."""
+    from .services.real_time_analytics import RealTimeAnalyticsService
+    from communication.services.notification_service import NotificationService
+    
+    # Get real-time analytics
+    medication_alerts = RealTimeAnalyticsService.get_medication_adherence_alerts()
+    wearable_anomalies = RealTimeAnalyticsService.get_wearable_anomalies()
+    emergency_indicators = RealTimeAnalyticsService.get_emergency_indicators()
+    
+    # Compile critical alerts
+    critical_alerts = {
+        'medication_alerts': medication_alerts,
+        'wearable_anomalies': wearable_anomalies,
+        'emergency_indicators': emergency_indicators,
+        'generated_at': timezone.now().isoformat(),
+        'requires_immediate_attention': len(medication_alerts) > 0 or len(emergency_indicators) > 0
+    }
+    
+    # Send to appropriate stakeholders if critical alerts exist
+    if critical_alerts['requires_immediate_attention']:
+        notification_service = NotificationService()
+        
+        # Get admin and compliance users
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        
+        stakeholders = User.objects.filter(
+            Q(role='admin') | Q(role='compliance') | Q(is_staff=True),
+            is_active=True
+        )
+        
+        for user in stakeholders:
+            notification_service.send_critical_rare_disease_alert(
+                user=user,
+                alert_data=critical_alerts,
+                severity_level='HIGH'
+            )
+    
+    return f"Critical alerts processed: {len(medication_alerts + wearable_anomalies + emergency_indicators)} total alerts"
+
+@shared_task
+def generate_pharmaceutical_compliance_report(pharmco_user_id):
+    """Generate compliance report for pharmaceutical companies."""
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    
+    try:
+        pharmco_user = User.objects.get(id=pharmco_user_id, role='pharmco')
+        
+        # Generate report using regulatory export service
+        from .services.regulatory_export import RegulatoryExportService
+        
+        end_date = timezone.now().date()
+        start_date = end_date - timedelta(days=90)  # Quarterly report
+        
+        # Get medications associated with this pharmaceutical company
+        from medication.models import Medication
+        company_medications = Medication.objects.filter(
+            manufacturer=pharmco_user.company_name,  # Assuming this field exists
+            for_rare_condition=True
+        )
+        
+        compliance_data = {
+            'company': pharmco_user.company_name,
+            'report_period': f"{start_date} to {end_date}",
+            'medications_monitored': company_medications.count(),
+            'adverse_events_data': {},
+            'clinical_outcomes': {},
+            'regulatory_status': {}
+        }
+        
+        for medication in company_medications:
+            # Generate PSUR for each medication
+            psur_data = RegulatoryExportService.generate_periodic_safety_update(
+                medication.id, start_date, end_date
+            )
+            compliance_data['adverse_events_data'][medication.name] = psur_data
+        
+        # Create report record
+        from .models import Report, ReportConfiguration
+        
+        config, _ = ReportConfiguration.objects.get_or_create(
+            name=f"Pharmaceutical Compliance - {pharmco_user.company_name}",
+            report_type='pharmaceutical_compliance',
+            created_by=pharmco_user,
+            defaults={
+                'description': 'Automated quarterly compliance report',
+                'schedule': 'quarterly',
+                'parameters': {'company_id': pharmco_user.id}
+            }
+        )
+        
+        report = Report.objects.create(
+            configuration=config,
+            status='COMPLETED',
+            started_at=timezone.now(),
+            completed_at=timezone.now(),
+            results_json=compliance_data,
+            created_by=pharmco_user
+        )
+        
+        # Send notification
+        from communication.services.notification_service import NotificationService
+        notification_service = NotificationService()
+        
+        notification_service.create_notification(
+            user=pharmco_user,
+            title='Quarterly Compliance Report Generated',
+            message=f'Your compliance report for {start_date} to {end_date} is ready for review.',
+            notification_type='system',
+            related_object_id=report.id,
+            related_object_type='report'
+        )
+        
+        return f"Compliance report generated for {pharmco_user.company_name}"
+        
+    except Exception as e:
+        logger.error(f"Error generating pharmaceutical compliance report: {str(e)}")
+        return f"Error: {str(e)}"

@@ -19,6 +19,16 @@ class ReportConfiguration(models.Model):
         PHI_ACCESS = 'phi_access', _('PHI Access Audit')
         CONSENT_ACTIVITY = 'consent_activity', _('Consent Activity')
         TELEMEDICINE_USAGE = 'telemedicine_usage', _('Telemedicine Usage')
+        RARE_DISEASE_ADHERENCE = 'rare_disease_adherence', 'Rare Disease Medication Adherence'
+        PHARMACEUTICAL_TRIAL = 'pharmaceutical_trial', 'Pharmaceutical Trial Data'
+        WEARABLE_ANALYTICS = 'wearable_analytics', 'Wearable Device Analytics'
+        CAREGIVER_EFFECTIVENESS = 'caregiver_effectiveness', 'Caregiver Effectiveness'
+        COMMUNITY_ENGAGEMENT = 'community_engagement', 'Community Engagement'
+        TELEMEDICINE_OUTCOMES = 'telemedicine_outcomes', 'Telemedicine Outcomes'
+        REGULATORY_SUBMISSION = 'regulatory_submission', 'Regulatory Submission'
+        REAL_WORLD_EVIDENCE = 'real_world_evidence', 'Real World Evidence'
+        GENETIC_CORRELATION = 'genetic_correlation', 'Genetic Data Correlation'
+        EMERGENCY_EVENTS = 'emergency_events', 'Emergency Events Analysis'
         CUSTOM = 'custom', _('Custom Report')
     
     class Schedule(models.TextChoices):

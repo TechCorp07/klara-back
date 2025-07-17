@@ -1,7 +1,4 @@
-import io
-import csv
 import json
-import zipfile
 import logging
 from datetime import datetime, timedelta
 from django.utils import timezone
@@ -38,7 +35,6 @@ from .filters import (
     DashboardWidgetFilter, AnalyticsMetricFilter, ReportScheduleLogFilter,
     DataExportFilter
 )
-
 
 User = get_user_model()
 logger = logging.getLogger('hipaa_audit')
@@ -380,6 +376,106 @@ class DashboardViewSet(viewsets.ModelViewSet):
             Q(shared_with=user)
         ).distinct()
     
+    @action(detail=True, methods=['post'])
+    def add_rare_disease_widget(self, request, pk=None):
+        """Add specialized widget for rare disease monitoring."""
+        dashboard = self.get_object()
+        
+        widget_type = request.data.get('widget_type')
+        condition = request.data.get('condition')
+        
+        if widget_type not in ['medication_adherence', 'symptom_tracker', 'emergency_alerts', 'caregiver_updates']:
+            return Response({'error': 'Invalid widget type for rare disease dashboard'}, status=400)
+        
+        # Create specialized configuration
+        widget_config = {
+            'condition_filter': condition,
+            'auto_refresh': True,
+            'alert_thresholds': {
+                'medication_adherence': 80,  # Alert if below 80%
+                'missed_appointments': 2,    # Alert if 2+ missed
+                'emergency_events': 1        # Alert on any emergency
+            },
+            'display_options': {
+                'show_trends': True,
+                'show_predictions': True,
+                'highlight_critical': True
+            }
+        }
+        
+        widget = DashboardWidget.objects.create(
+            dashboard=dashboard,
+            title=f"{widget_type.replace('_', ' ').title()} - {condition}",
+            widget_type=widget_type,
+            data_source=f'rare_disease_{widget_type}',
+            configuration=widget_config,
+            position={'x': 0, 'y': 0, 'width': 6, 'height': 4},
+            refresh_interval=300  # 5 minutes for critical data
+        )
+        
+        return Response(DashboardWidgetSerializer(widget).data, status=201)
+
+    @action(detail=False, methods=['get'])
+    def get_pharmaceutical_dashboard(self, request):
+        """Get specialized dashboard for pharmaceutical companies."""
+        if request.user.role != 'pharmco':
+            return Response({'error': 'Access denied'}, status=403)
+        
+        # Create or get pharmaceutical company dashboard
+        dashboard, created = Dashboard.objects.get_or_create(
+            owner=request.user,
+            name='Pharmaceutical Analytics Dashboard',
+            defaults={
+                'description': 'Real-time analytics for rare disease drug development',
+                'is_public': False,
+                'layout': 'pharmaceutical_layout'
+            }
+        )
+        
+        if created:
+            # Add default widgets for pharmaceutical companies
+            default_widgets = [
+                {
+                    'title': 'Trial Enrollment Status',
+                    'widget_type': 'enrollment_tracker',
+                    'data_source': 'trial_enrollment',
+                    'position': {'x': 0, 'y': 0, 'width': 6, 'height': 4}
+                },
+                {
+                    'title': 'Medication Adherence Rates',
+                    'widget_type': 'adherence_chart',
+                    'data_source': 'medication_adherence',
+                    'position': {'x': 6, 'y': 0, 'width': 6, 'height': 4}
+                },
+                {
+                    'title': 'Adverse Events Monitor',
+                    'widget_type': 'safety_monitor',
+                    'data_source': 'adverse_events',
+                    'position': {'x': 0, 'y': 4, 'width': 12, 'height': 4}
+                },
+                {
+                    'title': 'Real-World Evidence',
+                    'widget_type': 'rwe_analytics',
+                    'data_source': 'real_world_evidence',
+                    'position': {'x': 0, 'y': 8, 'width': 8, 'height': 4}
+                },
+                {
+                    'title': 'Regulatory Timeline',
+                    'widget_type': 'regulatory_tracker',
+                    'data_source': 'regulatory_milestones',
+                    'position': {'x': 8, 'y': 8, 'width': 4, 'height': 4}
+                }
+            ]
+            
+            for widget_data in default_widgets:
+                DashboardWidget.objects.create(
+                    dashboard=dashboard,
+                    **widget_data,
+                    refresh_interval=600  # 10 minutes
+                )
+        
+        return Response(DashboardSerializer(dashboard).data)
+
     def perform_create(self, serializer):
         """Set owner when creating dashboard."""
         serializer.save(owner=self.request.user)
