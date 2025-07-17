@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #4B77BE;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 5px 5px 0 0;
+        }
+        .content {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-top: none;
+            border-radius: 0 0 5px 5px;
+        }
+        .footer {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #777;
+        }
+        .button {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #4B77BE;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>{{ title }}</h2>
+    </div>
+    <div class="content">
+        <p>Hello {{ user_name }},</p>
+        
+        <p>{{ message }}</p>
+        
+        {% if notification_type == 'message' %}
+            <p>You have received a new message. Please log in to your account to view and respond.</p>
+            <a href="{{ portal_url }}/messages" class="button">View Messages</a>
+        {% elif notification_type == 'appointment' %}
+            <p>You have an appointment notification. Please check your appointments in your account.</p>
+            <a href="{{ portal_url }}/appointments" class="button">View Appointments</a>
+        {% elif notification_type == 'prescription' %}
+            <p>You have a prescription notification. Please check your medications in your account.</p>
+            <a href="{{ portal_url }}/medications" class="button">View Medications</a>
+        {% elif notification_type == 'lab_result' %}
+            <p>You have a lab result notification. Please check your results in your account.</p>
+            <a href="{{ portal_url }}/lab-results" class="button">View Lab Results</a>
+        {% elif notification_type == 'system' %}
+            <p>You have a system notification. Please log in to your account for more information.</p>
+            <a href="{{ portal_url }}" class="button">Go to Klararety</a>
+        {% elif notification_type == 'digest' %}
+            <p>This is your message digest. Please log in to your account to view your conversations.</p>
+            <a href="{{ portal_url }}/messages" class="button">View Messages</a>
+        {% else %}
+            <p>Please log in to your account for more information.</p>
+            <a href="{{ portal_url }}" class="button">Log In</a>
+        {% endif %}
+    </div>
+    <div class="footer">
+        <p>This is an automated message from Klararety Health Platform. Please do not reply to this email.</p>
+        <p>If you need assistance, please contact our support team or your healthcare provider directly.</p>
+        <p>© {{ notification_time|slice:":4" }} Klararety Health. All rights reserved.</p>
+    </div>
+</body>
+</html>

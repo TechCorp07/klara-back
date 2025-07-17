@@ -1,0 +1,21 @@
+SECURITY ALERT - {{ severity }}
+
+A security alert has been triggered in the {{ app_name }} platform:
+
+Alert Type: {{ event_type }}
+Time: {{ timestamp }}
+Severity: {{ severity }}
+User: {{ user }}
+IP Address: {{ ip_address }}
+
+Description: {{ description }}
+
+{% if dashboard_url %}
+View details in the security dashboard: {{ dashboard_url }}
+{% endif %}
+
+This is an automated security notification. Please investigate this alert according to your organization's security protocols.
+
+---
+This is an automated message from the {{ app_name }} HIPAA Compliance and Security System.
+If you are not responsible for security management, please forward this email to the appropriate team member.

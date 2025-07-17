@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Virtual Consultation is Starting Soon</title>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .header {
+            background-color: #27ae60;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 20px;
+        }
+        .footer {
+            background-color: #f4f4f4;
+            padding: 15px;
+            text-align: center;
+            font-size: 14px;
+            color: #666;
+        }
+        .join-box {
+            background-color: #f0f8f1;
+            border: 1px solid #a7d7a9;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .button {
+            display: inline-block;
+            background-color: #27ae60;
+            color: white;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+            margin: 15px 0;
+            font-size: 16px;
+        }
+        .meeting-info {
+            background-color: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            font-family: monospace;
+            text-align: left;
+        }
+        .tips {
+            background-color: #f9f9f9;
+            border-left: 4px solid #27ae60;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .tips h3 {
+            margin-top: 0;
+            color: #27ae60;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Your Virtual Consultation is Starting Soon</h1>
+    </div>
+    
+    <div class="content">
+        <p>Hello {{ patient_name }},</p>
+        
+        <p>Your virtual consultation with {{ doctor_name }} is ready to begin. Please join the video call as soon as possible.</p>
+        
+        <div class="join-box">
+            <h2>Join Your Consultation Now</h2>
+            <p>Click the button below to join the video call:</p>
+            
+            <p>
+                <a href="{{ join_url }}" class="button">Join Video Consultation</a>
+            </p>
+        </div>
+        
+        <div class="meeting-info">
+            <h3>Meeting Details:</h3>
+            <p><strong>Platform:</strong> {{ platform }}</p>
+            <p><strong>Meeting ID:</strong> {{ meeting_id }}</p>
+            {% if password %}
+            <p><strong>Password:</strong> {{ password }}</p>
+            {% endif %}
+        </div>
+        
+        <div class="tips">
+            <h3>Quick Tips for a Successful Consultation:</h3>
+            <ul>
+                <li>Ensure your device's camera and microphone are working</li>
+                <li>Find a quiet, private space with good lighting</li>
+                <li>Have a list of your symptoms or questions ready</li>
+                <li>Keep any medications or medical devices handy to show the provider if needed</li>
+            </ul>
+        </div>
+        
+        <p>If you have any technical difficulties joining the consultation, please try the following:</p>
+        <ol>
+            <li>Refresh your browser</li>
+            <li>Check your internet connection</li>
+            <li>Try joining from a different device</li>
+            <li>Contact technical support through the patient portal</li>
+        </ol>
+        
+        <p>If you cannot join the consultation, please contact our support team immediately.</p>
+        
+        <p>Thank you for choosing our telemedicine services.</p>
+        
+        <p>Regards,<br>
+        The Healthcare Team</p>
+    </div>
+    
+    <div class="footer">
+        <p>This is an automated message, please do not reply directly to this email.</p>
+        <p>&copy; {% now "Y" %} Telemedicine Services. All rights reserved.</p>
+    </div>
+</body>
+</html>

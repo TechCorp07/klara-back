@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Security Alert - {{ app_name }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #d9534f;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+        }
+        .content {
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .footer {
+            margin-top: 20px;
+            font-size: 12px;
+            color: #777;
+        }
+        .severity-critical {
+            color: #d9534f;
+            font-weight: bold;
+        }
+        .severity-high {
+            color: #f0ad4e;
+            font-weight: bold;
+        }
+        .severity-medium {
+            color: #5bc0de;
+        }
+        .severity-low {
+            color: #5cb85c;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>SECURITY ALERT - {{ severity }}</h2>
+    </div>
+    <div class="content">
+        <p>A security alert has been triggered in the {{ app_name }} platform:</p>
+        
+        <ul>
+            <li><strong>Alert Type:</strong> {{ event_type }}</li>
+            <li><strong>Time:</strong> {{ timestamp }}</li>
+            <li><strong>Severity:</strong> 
+                <span class="severity-{{ severity|lower }}">{{ severity }}</span>
+            </li>
+            <li><strong>User:</strong> {{ user }}</li>
+            <li><strong>IP Address:</strong> {{ ip_address }}</li>
+        </ul>
+        
+        <p><strong>Description:</strong> {{ description }}</p>
+        
+        {% if dashboard_url %}
+        <p>
+            <a href="{{ dashboard_url }}">View details in the security dashboard</a>
+        </p>
+        {% endif %}
+        
+        <p>This is an automated security notification. Please investigate this alert according to your organization's security protocols.</p>
+    </div>
+    <div class="footer">
+        <p>This is an automated message from the {{ app_name }} HIPAA Compliance and Security System.</p>
+        <p>If you are not responsible for security management, please forward this email to the appropriate team member.</p>
+    </div>
+</body>
+</html>

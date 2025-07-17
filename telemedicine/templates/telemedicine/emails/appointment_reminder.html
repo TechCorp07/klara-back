@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Appointment Reminder</title>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .header {
+            background-color: #e67e22;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 20px;
+        }
+        .footer {
+            background-color: #f4f4f4;
+            padding: 15px;
+            text-align: center;
+            font-size: 14px;
+            color: #666;
+        }
+        .appointment-details {
+            background-color: #f9f9f9;
+            border-left: 4px solid #e67e22;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .button {
+            display: inline-block;
+            background-color: #e67e22;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+            margin: 15px 0;
+        }
+        .checklist {
+            background-color: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .checklist ul {
+            list-style-type: none;
+            padding-left: 20px;
+        }
+        .checklist li {
+            margin-bottom: 10px;
+            position: relative;
+            padding-left: 30px;
+        }
+        .checklist li:before {
+            content: "✓";
+            color: #e67e22;
+            font-weight: bold;
+            position: absolute;
+            left: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Appointment Reminder</h1>
+    </div>
+    
+    <div class="content">
+        <p>Hello {{ patient_name }},</p>
+        
+        <p>This is a friendly reminder about your upcoming appointment with {{ doctor_name }}.</p>
+        
+        <div class="appointment-details">
+            <h3>Appointment Details:</h3>
+            <p><strong>Date and Time:</strong> {{ appointment_time }}</p>
+            <p><strong>Type:</strong> {{ appointment_type }}</p>
+            <p><strong>Appointment ID:</strong> {{ appointment_id }}</p>
+        </div>
+        
+        {% if is_video %}
+        <div class="checklist">
+            <h3>Getting Ready for Your Video Consultation:</h3>
+            <ul>
+                <li>Test your device's camera and microphone</li>
+                <li>Ensure you have a stable internet connection</li>
+                <li>Find a quiet, well-lit space for your consultation</li>
+                <li>Have your list of questions or concerns ready</li>
+                <li>Join the virtual waiting room 5-10 minutes early</li>
+            </ul>
+        </div>
+        {% endif %}
+        
+        <p style="text-align: center;">
+            <a href="{{ portal_url }}" class="button">Access Patient Portal</a>
+        </p>
+        
+        <p>If you need to reschedule or have any questions, please contact us as soon as possible.</p>
+        
+        <p>We look forward to seeing you!</p>
+        
+        <p>Regards,<br>
+        The Healthcare Team</p>
+    </div>
+    
+    <div class="footer">
+        <p>This is an automated message, please do not reply directly to this email.</p>
+        <p>&copy; {% now "Y" %} Telemedicine Services. All rights reserved.</p>
+    </div>
+</body>
+</html>

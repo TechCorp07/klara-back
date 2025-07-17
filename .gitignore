@@ -1,0 +1,23 @@
+# Files
+.env
+cert.crt
+cert.key
+db.sqlite3
+klararety_users_api.postman_collection
+test.html
+klararety notes.txt
+schema.json
+app.zip
+
+
+#Folders
+__pycache__
+.coverage
+cover/
+.anima/
+logs/
+docs/
+venv/
+security_scans/
+staticfiles/
+klararety_backend_updates/

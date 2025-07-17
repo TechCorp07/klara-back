@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Prescription</title>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .header {
+            background-color: #3498db;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 20px;
+        }
+        .footer {
+            background-color: #f4f4f4;
+            padding: 15px;
+            text-align: center;
+            font-size: 14px;
+            color: #666;
+        }
+        .prescription-details {
+            background-color: #eaf2fa;
+            border: 1px solid #bdd7ef;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .button {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+            margin: 15px 0;
+        }
+        .medication-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #3498db;
+            margin-bottom: 5px;
+        }
+        .medication-details {
+            margin-bottom: 15px;
+        }
+        .important-note {
+            background-color: #fdf2e9;
+            border-left: 4px solid #e67e22;
+            padding: 10px 15px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>New Prescription</h1>
+    </div>
+    
+    <div class="content">
+        <p>Hello {{ patient_name }},</p>
+        
+        <p>{{ doctor_name }} has prescribed the following medication for you:</p>
+        
+        <div class="prescription-details">
+            <div class="medication-name">{{ medication_name }}</div>
+            
+            <div class="medication-details">
+                <p><strong>Dosage:</strong> {{ dosage }}</p>
+                <p><strong>Frequency:</strong> {{ frequency }}</p>
+                <p><strong>Instructions:</strong> {{ instructions }}</p>
+                <p><strong>Refills:</strong> {{ refills }}</p>
+            </div>
+            
+            <div class="important-note">
+                <p><strong>Important:</strong> Please read all instructions carefully and follow the prescribed dosage. Contact your healthcare provider if you experience any adverse effects.</p>
+            </div>
+        </div>
+        
+        <p>This prescription has been sent to your pharmacy electronically. You should be able to pick it up once it's processed. Please allow some time for your pharmacy to prepare your medication.</p>
+        
+        <p>You can view your prescription details and history in your patient portal:</p>
+        
+        <p style="text-align: center;">
+            <a href="{{ portal_url }}" class="button">View Prescription Details</a>
+        </p>
+        
+        <p>If you have any questions about this prescription or experience any issues with pickup, please contact your healthcare provider or our support team.</p>
+        
+        <p>Regards,<br>
+        The Healthcare Team</p>
+    </div>
+    
+    <div class="footer">
+        <p>This is an automated message, please do not reply directly to this email.</p>
+        <p>For prescription-related questions, please contact your healthcare provider directly.</p>
+        <p>&copy; {% now "Y" %} Telemedicine Services. All rights reserved.</p>
+    </div>
+</body>
+</html>
