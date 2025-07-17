@@ -1,5 +1,6 @@
 # serializers.py
 from rest_framework import serializers
+from .services.content_safety import ContentSafetyService
 from community.models import (
     CommunityGroup,
     CommunityMembership,
@@ -11,6 +12,7 @@ from community.models import (
     CommunityNotification,
     CommunityAccessibilitySetting
 )
+
 
 class CommunityGroupSerializer(serializers.ModelSerializer):
     class Meta:
@@ -28,18 +30,51 @@ class CommunityMembershipSerializer(serializers.ModelSerializer):
 
 class CommunityPostSerializer(serializers.ModelSerializer):
     author_name = serializers.SerializerMethodField()
+    content_safety_analysis = serializers.SerializerMethodField()
     
     class Meta:
         model = CommunityPost
         fields = '__all__'
         read_only_fields = [
             'created_at', 'updated_at', 'view_count', 'like_count',
-            'comment_count', 'author_name'
+            'comment_count', 'author_name', 'content_safety_analysis'
         ]
+    
+    def validate_content(self, value):
+        """Validate content for PHI and safety."""
+        analysis = ContentSafetyService.analyze_content(value)
+        
+        if analysis['contains_potential_phi']:
+            raise serializers.ValidationError(
+                "Content may contain personal health information. "
+                "Please review and remove any personal identifiers before posting."
+            )
+        
+        return value
+    
+    def validate(self, attrs):
+        """Additional validation for post creation."""
+        # Auto-set content warning if needed
+        if 'content' in attrs:
+            analysis = ContentSafetyService.analyze_content(attrs['content'])
+            
+            if analysis['requires_content_warning'] and not attrs.get('content_warning_text'):
+                attrs['content_warning_text'] = ContentSafetyService.suggest_content_warning(attrs['content'])
+                attrs['requires_content_warning'] = True
+            
+            # Set sensitive content flag
+            attrs['contains_sensitive_content'] = analysis['contains_sensitive_content']
+        
+        return attrs
     
     def get_author_name(self, obj):
         return obj.author.get_full_name() or obj.author.username
-
+    
+    def get_content_safety_analysis(self, obj):
+        """Return content safety analysis for moderation purposes."""
+        if self.context['request'].user.role in ['admin', 'moderator']:
+            return ContentSafetyService.analyze_content(obj.content)
+        return None
 
 class CommunityCommentSerializer(serializers.ModelSerializer):
     author_name = serializers.SerializerMethodField()
@@ -145,3 +180,4 @@ def get_content(self, obj):
         pass
     
     return content
+

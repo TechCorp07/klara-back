@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
 import django_filters
+from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 
 from community.permissions import (
@@ -34,7 +35,7 @@ from community.serializers import (
     CommunityAccessibilitySettingSerializer
 )
 
-# Example custom permission
+
 class IsAdminOrSelfOnly(permissions.BasePermission):
     """
     Only an admin or the object's owner can access/modify.
@@ -341,39 +342,75 @@ class CommunityEventViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description']
     ordering_fields = ['start_time', 'created_at', 'updated_at']
-    
+
 
 class CommunityResourceViewSet(viewsets.ModelViewSet):
+    """ViewSet for community resources."""
     queryset = CommunityResource.objects.all()
     serializer_class = CommunityResourceSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    permission_classes = [permissions.IsAuthenticated, IsCommunityMemberOrPublic]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description']
-    ordering_fields = ['created_at', 'updated_at', 'view_count', 'download_count']
+    ordering_fields = ['created_at', 'view_count', 'download_count']
+    
+    def perform_create(self, serializer):
+        """Auto-assign uploader when creating resource."""
+        # If you add uploaded_by field to CommunityResource model
+        serializer.save()
+    
+    @action(detail=True, methods=['post'])
+    def download(self, request, pk=None):
+        """Track resource downloads."""
+        resource = self.get_object()
+        resource.download_count += 1
+        resource.save(update_fields=['download_count'])
+        return Response({'detail': 'Download tracked successfully.'})
 
-
-class CommunityNotificationViewSet(viewsets.ModelViewSet):
-    queryset = CommunityNotification.objects.all()
+class CommunityNotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for user notifications (read-only)."""
     serializer_class = CommunityNotificationSerializer
     permission_classes = [permissions.IsAuthenticated]
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['title', 'message']
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['is_read', 'notification_type', 'priority']
     ordering_fields = ['created_at']
     
+    def get_queryset(self):
+        """Only show user's own notifications."""
+        return CommunityNotification.objects.filter(
+            user=self.request.user
+        ).order_by('-created_at')
+    
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        """Mark notification as read."""
+        notification = self.get_object()
+        if not notification.is_read:
+            notification.is_read = True
+            notification.read_at = timezone.now()
+            notification.save(update_fields=['is_read', 'read_at'])
+        return Response({'detail': 'Notification marked as read.'})
+    
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        """Mark all user notifications as read."""
+        updated = CommunityNotification.objects.filter(
+            user=request.user,
+            is_read=False
+        ).update(
+            is_read=True,
+            read_at=timezone.now()
+        )
+        return Response({'detail': f'{updated} notifications marked as read.'})
 
 class CommunityAccessibilitySettingViewSet(viewsets.ModelViewSet):
-    queryset = CommunityAccessibilitySetting.objects.all()
+    """ViewSet for user accessibility settings."""
     serializer_class = CommunityAccessibilitySettingSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrSelfOnly]
     
     def get_queryset(self):
-        if getattr(self, 'swagger_fake_view', False):
-            # Return an empty queryset for swagger schema generation
-            return self.queryset.model.objects.none()
-        
+        """Users can only access their own accessibility settings."""
         return CommunityAccessibilitySetting.objects.filter(user=self.request.user)
     
     def perform_create(self, serializer):
-        # Delete any old instance to keep OneToOne
-        CommunityAccessibilitySetting.objects.filter(user=self.request.user).delete()
+        """Ensure user is set correctly."""
         serializer.save(user=self.request.user)

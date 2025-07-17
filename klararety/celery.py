@@ -153,6 +153,25 @@ app.conf.beat_schedule = {
         'task': 'telemedicine.tasks.end_abandoned_consultations',
         'schedule': 1800.0,  # Every 30 minutes
     },
+    
+    # Community tasks
+    'moderate-flagged-content': {
+        'task': 'community.tasks.moderate_flagged_content',
+        'schedule': 3600.0,  # Every hour
+    },
+    'send-community-digest': {
+        'task': 'community.tasks.send_community_digest',
+        'schedule': 86400.0,  # Daily at midnight
+    },
+    'cleanup-old-notifications': {
+        'task': 'community.tasks.cleanup_old_notifications',
+        'schedule': 86400.0,  # Daily
+    },
+    'check-inactive-groups': {
+        'task': 'community.tasks.check_inactive_groups',
+        'schedule': 604800.0,  # Weekly
+    },
+    
 }
 
 # Configure task time limits
