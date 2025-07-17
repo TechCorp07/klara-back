@@ -14,15 +14,7 @@ from cryptography.fernet import Fernet
 BASE_DIR = Path(__file__).resolve().parent.parent
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 
-# Initialize environment variables
 env = environ.Env()
-
-# env_path = BASE_DIR / '.env'
-# if env_path.exists():
-#     environ.Env.read_env(env_path)
-# else:
-#     print(f"Warning: .env file not found at {env_path}")
-
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env('SECRET_KEY', default='django-insecure-change-in-production')
@@ -122,7 +114,14 @@ DATABASES = {
         'PASSWORD': env('DB_PASSWORD', default=''),
         'HOST': env('DB_HOST', default='localhost'),
         'PORT': env('DB_PORT', default='5432'),
-        'CONN_MAX_AGE': 600,
+        'OPTIONS': {
+            'sslmode': 'require',
+            'sslcert': env('DB_CLIENT_CERT'),
+            'sslkey': env('DB_CLIENT_KEY'),
+            'sslrootcert': env('DB_CA_CERT'),
+        },
+        'CONN_MAX_AGE': 60,
+        'CONN_HEALTH_CHECKS': True,
     },
 }
 
@@ -164,8 +163,21 @@ CACHES = {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
     }
 }
+
 # needed in prod
-""" # Channels configuration for WebSockets
+"""
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': env('REDIS_URL'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'CONNECTION_POOL_KWARGS': {'ssl_cert_reqs': None},
+        }
+    }
+}
+
+# Channels configuration for WebSockets
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
@@ -242,10 +254,13 @@ REST_FRAMEWORK = {
 """     'DEFAULT_THROTTLE_CLASSES': [
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
     ], """
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/day',
         'user': '1000/day',
+        'phi_access': '500/hour',
+        'wearable_sync': '100/hour',
     },
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
