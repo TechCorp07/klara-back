@@ -1,9 +1,5 @@
-import csv
-import io
-import json
 from datetime import datetime, timedelta
 from django.utils import timezone
-from django.http import HttpResponse, StreamingHttpResponse
 from django.db.models import Q, Count
 from rest_framework import viewsets, status, permissions, filters
 from rest_framework.decorators import action
@@ -350,22 +346,44 @@ class ComplianceReportViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(dashboard_data)
 
 
-class AuditExportViewSet(viewsets.ReadOnlyModelViewSet):
+class AuditExportViewSet(viewsets.ModelViewSet):
     """
     API endpoint for managing audit exports.
     Only administrators and compliance officers can access this endpoint.
     """
     serializer_class = AuditExportSerializer
     permission_classes = [IsComplianceOfficer]
+    filter_backends = [DjangoFilterBackend]
     filterset_class = AuditExportFilterSet
     
     def get_queryset(self):
-        """Get exports for the current user."""
-        if getattr(self, 'swagger_fake_view', False):
-            # Return an empty queryset for swagger schema generation
-            return AuditExport.objects.none()
-        
+        """Filter exports to user's own exports unless admin."""
+        if self.request.user.role == 'admin' or self.request.user.is_superuser:
+            return AuditExport.objects.all().order_by('-created_at')
         return AuditExport.objects.filter(user=self.request.user).order_by('-created_at')
+    
+    def perform_create(self, serializer):
+        """Create export and trigger background task."""
+        export = serializer.save(user=self.request.user)
+        
+        # Trigger background task
+        from .tasks import generate_audit_export
+        generate_audit_export.delay(export.id)
+    
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        """Download the export file."""
+        export = self.get_object()
+        
+        if export.status != AuditExport.Status.COMPLETED or not export.file_url:
+            return Response(
+                {'error': 'Export not ready for download'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Return download URL or redirect to file
+        return Response({'download_url': export.file_url})
+
 
 class ComplianceDashboardViewSet(viewsets.ViewSet):
     """
@@ -473,4 +491,76 @@ class ComplianceDashboardViewSet(viewsets.ViewSet):
             
         report = HIPAAComplianceReporter.generate_patient_access_report(patient_id, start_date, end_date)
         return Response(report)
+
+
+class ComplianceDashboardViewSet(viewsets.ViewSet):
+    """
+    API endpoint for compliance dashboard metrics.
+    Only compliance officers and administrators can access this endpoint.
+    """
+    permission_classes = [IsComplianceOfficer]
+    
+    @action(detail=False, methods=['get'])
+    def metrics(self, request):
+        """Get compliance metrics summary."""
+        # Get timeframe from query params or default to last 30 days
+        days = int(request.query_params.get('days', 30))
+        start_date = timezone.now() - timedelta(days=days)
+        
+        # Get metrics
+        total_phi_accesses = PHIAccessLog.objects.filter(timestamp__gte=start_date).count()
+        total_security_events = SecurityAuditLog.objects.filter(timestamp__gte=start_date).count()
+        unresolved_security_events = SecurityAuditLog.objects.filter(
+            timestamp__gte=start_date, resolved=False
+        ).count()
+        
+        # Calculate compliance score (basic calculation)
+        phi_with_reason = PHIAccessLog.objects.filter(
+            timestamp__gte=start_date
+        ).exclude(Q(reason='') | Q(reason='No reason provided')).count()
+        
+        compliance_score = (phi_with_reason / total_phi_accesses * 100) if total_phi_accesses > 0 else 100
+        
+        return Response({
+            'timeframe_days': days,
+            'total_phi_accesses': total_phi_accesses,
+            'total_security_events': total_security_events,
+            'unresolved_security_events': unresolved_security_events,
+            'compliance_score': round(compliance_score, 2),
+            'phi_access_with_reason': phi_with_reason,
+            'risk_level': 'LOW' if compliance_score > 95 else 'MEDIUM' if compliance_score > 85 else 'HIGH'
+        })
+    
+    @action(detail=False, methods=['get'])
+    def risk_assessment(self, request):
+        """Get current risk assessment."""
+        days = int(request.query_params.get('days', 7))
+        start_date = timezone.now() - timedelta(days=days)
+        
+        # High-risk indicators
+        critical_security_events = SecurityAuditLog.objects.filter(
+            timestamp__gte=start_date,
+            severity=SecurityAuditLog.Severity.CRITICAL,
+            resolved=False
+        ).count()
+        
+        phi_access_no_reason = PHIAccessLog.objects.filter(
+            timestamp__gte=start_date
+        ).filter(Q(reason='') | Q(reason='No reason provided')).count()
+        
+        failed_logins = AuditEvent.objects.filter(
+            timestamp__gte=start_date,
+            event_type=AuditEvent.EventType.ERROR,
+            description__icontains='login'
+        ).count()
+        
+        risk_score = (critical_security_events * 3) + phi_access_no_reason + (failed_logins * 0.5)
+        
+        return Response({
+            'risk_score': risk_score,
+            'critical_security_events': critical_security_events,
+            'phi_access_no_reason': phi_access_no_reason,
+            'failed_logins': failed_logins,
+            'risk_level': 'CRITICAL' if risk_score > 10 else 'HIGH' if risk_score > 5 else 'MEDIUM' if risk_score > 2 else 'LOW'
+        })
 

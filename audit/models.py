@@ -116,8 +116,10 @@ class SecurityAuditLog(models.Model):
     For security alerts, threats, and potential breaches.
     """
     class EventType(models.TextChoices):
-        LOGIN_FAILED = 'login_failed', 'Login Failed'
-        SUSPICIOUS_ACCESS = 'suspicious_access', 'Suspicious Access'
+        FAILED_LOGIN = 'failed_login', 'Failed Login'
+        SUCCESSFUL_LOGIN = 'successful_login', 'Successful Login'
+        SUSPICIOUS_LOGIN = 'suspicious_login', 'Suspicious Login'
+        UNUSUAL_ACCESS = 'unusual_access', 'Unusual Access Pattern'
         PERMISSION_VIOLATION = 'permission_violation', 'Permission Violation'
         BRUTE_FORCE_ATTEMPT = 'brute_force_attempt', 'Brute Force Attempt'
         UNUSUAL_ACTIVITY = 'unusual_activity', 'Unusual Activity'
@@ -131,6 +133,13 @@ class SecurityAuditLog(models.Model):
         VIP_ACCESS = 'vip_access', 'VIP Record Access'
         SECURITY_CHANGE = 'security_change', 'Security Setting Change'
         API_KEY_USAGE = 'api_key_usage', 'API Key Usage'
+        RAPID_ACCESS = 'rapid_access', 'Rapid Access Pattern'
+        UNAUTHORIZED_ACCESS = 'unauthorized_access', 'Unauthorized Access'
+        DATA_BREACH = 'data_breach', 'Data Breach'
+        MALWARE_DETECTED = 'malware_detected', 'Malware Detected'
+        SYSTEM_INTRUSION = 'system_intrusion', 'System Intrusion'
+        PRIVILEGE_ESCALATION = 'privilege_escalation', 'Privilege Escalation'
+        DATA_EXFILTRATION = 'data_exfiltration', 'Data Exfiltration'
     
     class Severity(models.TextChoices):
         LOW = 'low', 'Low'

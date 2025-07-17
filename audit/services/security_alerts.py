@@ -7,7 +7,10 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.template.exceptions import TemplateDoesNotExist
 from ..models import SecurityAuditLog, PHIAccessLog, AuditEvent
+from django.contrib.auth import get_user_model
+from django.db.models.functions import Extract
 
+User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
@@ -319,10 +322,7 @@ class SecurityAlertService:
         for item in access_without_reason:
             if not item['user']:
                 continue  # Skip anonymous access
-                
-            from django.contrib.auth import get_user_model
-            User = get_user_model()
-            
+   
             try:
                 user = User.objects.get(id=item['user'])
                 
@@ -371,8 +371,6 @@ class SecurityAlertService:
             
             if item['patient_count'] > threshold:
                 try:
-                    from django.contrib.auth import get_user_model
-                    User = get_user_model()
                     user = User.objects.get(id=item['user'])
                     
                     alert = SecurityAlertService.create_security_alert(
@@ -494,10 +492,6 @@ class SecurityAlertService:
         recent_start = end_time - timedelta(hours=24)
         historical_start = end_time - timedelta(days=30)
         
-        # For each authenticated user with recent activity
-        from django.contrib.auth import get_user_model
-        User = get_user_model()
-        
         # Get recent active users
         recent_users = (
             AuditEvent.objects
@@ -587,9 +581,6 @@ class SecurityAlertService:
         end_time = timezone.now()
         hour_start = end_time - timedelta(hours=1)
         
-        # Group by user and hour to detect high-speed access
-        from django.db.models.functions import Extract
-        
         rapid_access = (
             PHIAccessLog.objects
             .filter(timestamp__gte=hour_start)
@@ -609,8 +600,6 @@ class SecurityAlertService:
                 continue
                 
             try:
-                from django.contrib.auth import get_user_model
-                User = get_user_model()
                 user = User.objects.get(id=access['user'])
                 
                 access_date = f"{access['year']}-{access['month']}-{access['day']} {access['hour']}:00"
@@ -697,8 +686,6 @@ class SecurityAlertService:
         for user_id, patient_data in vip_access_by_user.items():
             for patient_id, access_data in patient_data.items():
                 try:
-                    from django.contrib.auth import get_user_model
-                    User = get_user_model()
                     user = User.objects.get(id=user_id)
                     
                     # Always alert for VIP access

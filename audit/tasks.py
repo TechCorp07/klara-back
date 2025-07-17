@@ -1,3 +1,4 @@
+from celery import shared_task
 from __future__ import absolute_import, unicode_literals
 import io
 import csv
@@ -6,24 +7,26 @@ import logging
 from datetime import datetime, timedelta
 from statistics import mean, stdev
 from django.utils import timezone
-from django.db.models import Count, Q, F
+from django.db.models import Count, Q, F, Avg, StdDev
 from django.core.mail import send_mail, mail_admins
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.template.loader import render_to_string
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
-from celery import shared_task
+from django.db.models.functions import TruncDate
+
 
 from .models import (
     AuditEvent, PHIAccessLog, SecurityAuditLog, 
     ComplianceReport, AuditExport
 )
+from .services.hipaa_reports import HIPAAComplianceReporter
 from .services.security_alerts import SecurityAlertService
 from .services.export_service import ExportService
 
-logger = logging.getLogger(__name__)
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 @shared_task
 def monitor_suspicious_access_patterns():
@@ -686,7 +689,7 @@ def verify_audit_integrity():
 
 @shared_task
 def generate_compliance_report(report_id):
-    from .services.hipaa_reports import HIPAAComplianceReporter
+    logger.info(f"Starting compliance report generation: {report_id}")
     """
     Task to generate a compliance report from the queue.
     
@@ -1131,11 +1134,7 @@ def _check_timestamp_gaps(model_class, model_name):
     # Get historical daily volume averages for comparison
     end_date = timezone.now().date()
     start_date = end_date - timedelta(days=30)
-    
-    # Use Django's date functions to extract the date portion
-    from django.db.models.functions import TruncDate
-    from django.db.models import Count, Avg, StdDev
-    
+
     # Get average and standard deviation of daily record counts
     daily_stats = (
         model_class.objects
@@ -1239,10 +1238,6 @@ def _check_volume_anomalies(model_class, model_name):
     end_date = timezone.now().date()
     start_date = end_date - timedelta(days=30)
     yesterday = end_date - timedelta(days=1)
-    
-    # Use Django's date functions to extract the date portion
-    from django.db.models.functions import TruncDate
-    from django.db.models import Count, Avg, StdDev
     
     # Get average and standard deviation of daily record counts
     daily_stats = (
@@ -1352,8 +1347,6 @@ def _report_integrity_issues(issues):
     compliance_emails = getattr(settings, 'COMPLIANCE_OFFICER_EMAILS', [])
     if compliance_emails:
         try:
-            from django.core.mail import send_mail
-            
             send_mail(
                 subject=subject,
                 message=message,
@@ -1363,3 +1356,4 @@ def _report_integrity_issues(issues):
             )
         except Exception as e:
             logger.error(f"Failed to send compliance email about integrity issues: {str(e)}")
+
