@@ -359,7 +359,6 @@ def cleanup_old_wearable_data(days_to_keep=90):
     return f"Deleted {old_count} records"
 
 
-# Legacy task for backward compatibility
 @shared_task
 def fetch_withings_data_for_all_users():
     """Legacy task for backward compatibility."""
@@ -387,3 +386,134 @@ def fetch_withings_data_for_all_users():
     summary = f"Legacy task complete: {success_count} syncs scheduled, {failure_count} failed"
     logger.info(summary)
     return summary
+
+@shared_task
+def monitor_all_patients_adherence():
+    """Monitor medication adherence for all patients with active wearables."""
+    from .services.adherence_monitoring import AdherenceMonitoringService
+    from medication.models import Medication
+    from django.contrib.auth import get_user_model
+    
+    User = get_user_model()
+    
+    # Get patients with active medications and wearable integrations
+    patients = User.objects.filter(
+        role='patient',
+        wearables_integrations__status='connected',
+        medications__active=True
+    ).distinct()
+    
+    monitored_count = 0
+    
+    for patient in patients:
+        try:
+            # Monitor each active medication
+            active_medications = patient.medications.filter(active=True)
+            
+            for medication in active_medications:
+                report = AdherenceMonitoringService.monitor_medication_adherence(patient, medication)
+                if report.get('success'):
+                    monitored_count += 1
+                    
+        except Exception as e:
+            logger.error(f"Error monitoring adherence for patient {patient.id}: {str(e)}")
+    
+    logger.info(f"Monitored adherence for {monitored_count} medication instances")
+    return f"Monitored adherence for {monitored_count} medication instances"
+
+@shared_task
+def sync_wearable_data_for_pharma():
+    """Sync wearable data for pharmaceutical company research."""
+    from .models import WearableIntegration, PharmaceuticalDataExport
+    
+    # Get pending exports
+    pending_exports = PharmaceuticalDataExport.objects.filter(
+        status=PharmaceuticalDataExport.ExportStatus.PENDING
+    )
+    
+    for export in pending_exports:
+        try:
+            process_pharmaceutical_export.delay(export.id)
+        except Exception as e:
+            logger.error(f"Error queuing export {export.id}: {str(e)}")
+
+@shared_task
+def process_pharmaceutical_export(export_id):
+    """Process data export for pharmaceutical company."""
+    from .models import PharmaceuticalDataExport, WearableMeasurement
+    import csv
+    import os
+    from django.conf import settings
+    
+    try:
+        export = PharmaceuticalDataExport.objects.get(id=export_id)
+        export.status = PharmaceuticalDataExport.ExportStatus.IN_PROGRESS
+        export.started_at = timezone.now()
+        export.save()
+        
+        # Create export file
+        export_filename = f"pharma_export_{export_id}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        export_path = os.path.join(settings.MEDIA_ROOT, 'pharma_exports', export_filename)
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        
+        # Get consented patients data
+        patients = export.patients.filter(
+            patient_profile__protocol_adherence_monitoring=True
+        )
+        
+        records_exported = 0
+        
+        with open(export_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            
+            # Write headers
+            headers = [
+                'patient_id_hash', 'measurement_type', 'value', 'unit', 
+                'measured_at', 'device_type', 'medication_protocol'
+            ]
+            writer.writerow(headers)
+            
+            # Export data for each patient
+            for patient in patients:
+                measurements = WearableMeasurement.objects.filter(
+                    user=patient,
+                    measured_at__gte=export.date_range_start,
+                    measured_at__lte=export.date_range_end
+                )
+                
+                if export.data_types:
+                    measurements = measurements.filter(measurement_type__in=export.data_types)
+                
+                for measurement in measurements:
+                    # Anonymize patient ID
+                    patient_hash = hashlib.sha256(f"{patient.id}_{export.id}".encode()).hexdigest()[:16]
+                    
+                    writer.writerow([
+                        patient_hash,
+                        measurement.measurement_type,
+                        measurement.value,
+                        measurement.unit,
+                        measurement.measured_at.isoformat(),
+                        measurement.integration_type,
+                        ','.join(patient.patient_profile.custom_drug_protocols or [])
+                    ])
+                    
+                    records_exported += 1
+        
+        # Update export record
+        export.status = PharmaceuticalDataExport.ExportStatus.COMPLETED
+        export.completed_at = timezone.now()
+        export.records_exported = records_exported
+        export.file_path = export_path
+        export.file_size = os.path.getsize(export_path)
+        export.save()
+        
+        logger.info(f"Completed pharmaceutical export {export_id}: {records_exported} records")
+        return f"Exported {records_exported} records"
+        
+    except Exception as e:
+        export.status = PharmaceuticalDataExport.ExportStatus.FAILED
+        export.save()
+        logger.error(f"Error processing pharmaceutical export {export_id}: {str(e)}")
+        return f"Export failed: {str(e)}"
+

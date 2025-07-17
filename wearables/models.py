@@ -254,3 +254,119 @@ class SyncLog(models.Model):
     def duration_seconds(self):
         """Calculate the duration of the sync operation in seconds."""
         return (self.end_time - self.start_time).total_seconds()
+
+
+class NotificationDelivery(models.Model):
+    """Track wearable notification deliveries for medication adherence monitoring."""
+    
+    class NotificationType(models.TextChoices):
+        MEDICATION_REMINDER = 'medication_reminder', 'Medication Reminder'
+        APPOINTMENT_REMINDER = 'appointment_reminder', 'Appointment Reminder'
+        VITALS_REQUEST = 'vitals_request', 'Vitals Data Request'
+        PROTOCOL_UPDATE = 'protocol_update', 'Protocol Update'
+        EMERGENCY_ALERT = 'emergency_alert', 'Emergency Alert'
+    
+    integration = models.ForeignKey(WearableIntegration, on_delete=models.CASCADE, related_name='notifications')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='wearable_notifications')
+    
+    # Notification details
+    notification_type = models.CharField(max_length=30, choices=NotificationType.choices)
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    
+    # Delivery tracking
+    success = models.BooleanField(default=False)
+    sent_at = models.DateTimeField()
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+    
+    # User response tracking
+    user_response = models.CharField(max_length=50, blank=True, help_text="taken, skipped, snoozed, etc.")
+    response_time = models.DateTimeField(null=True, blank=True)
+    
+    # Metadata
+    metadata = models.JSONField(default=dict, help_text="Platform-specific delivery data")
+    
+    # Related objects
+    medication_id = models.CharField(max_length=100, blank=True, help_text="Related medication ID")
+    appointment_id = models.CharField(max_length=100, blank=True, help_text="Related appointment ID")
+    
+    class Meta:
+        ordering = ['-sent_at']
+        indexes = [
+            models.Index(fields=['user', 'notification_type', 'sent_at']),
+            models.Index(fields=['integration', 'success']),
+            models.Index(fields=['medication_id', 'sent_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.notification_type} to {self.user.email} via {self.integration.integration_type}"
+    
+    def mark_delivered(self):
+        """Mark notification as delivered."""
+        self.delivered_at = timezone.now()
+        self.save(update_fields=['delivered_at'])
+    
+    def mark_read(self):
+        """Mark notification as read by user."""
+        self.read_at = timezone.now()
+        self.save(update_fields=['read_at'])
+    
+    def record_user_response(self, response: str):
+        """Record user's response to the notification."""
+        self.user_response = response
+        self.response_time = timezone.now()
+        self.save(update_fields=['user_response', 'response_time'])
+
+
+class PharmaceuticalDataExport(models.Model):
+    """Model for tracking data exports to pharmaceutical companies."""
+    
+    class ExportStatus(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        IN_PROGRESS = 'in_progress', 'In Progress'
+        COMPLETED = 'completed', 'Completed'
+        FAILED = 'failed', 'Failed'
+        CANCELLED = 'cancelled', 'Cancelled'
+    
+    # Request details
+    pharmaceutical_company = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='wearable_data_exports',
+        limit_choices_to={'role': 'pharmco'}
+    )
+    patients = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name='wearable_exports',
+        limit_choices_to={'role': 'patient'}
+    )
+    
+    # Export parameters
+    data_types = models.JSONField(default=list, help_text="Types of data to export")
+    date_range_start = models.DateTimeField()
+    date_range_end = models.DateTimeField()
+    medication_protocols = models.JSONField(default=list, help_text="Specific protocols to include")
+    
+    # Export status
+    status = models.CharField(max_length=20, choices=ExportStatus.choices, default=ExportStatus.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    # Results
+    records_exported = models.PositiveIntegerField(default=0)
+    file_path = models.CharField(max_length=500, blank=True)
+    file_size = models.PositiveIntegerField(default=0, help_text="File size in bytes")
+    
+    # Privacy and compliance
+    anonymized = models.BooleanField(default=True)
+    consent_verified = models.BooleanField(default=False)
+    audit_trail = models.JSONField(default=dict)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"Data export for {self.pharmaceutical_company.email} - {self.status}"
+

@@ -5,6 +5,7 @@ import traceback
 import qrcode
 import io
 import base64
+from django.contrib.auth import get_user_model
 from datetime import datetime, timedelta
 from django.conf import settings
 from django.utils import timezone
@@ -16,15 +17,17 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from healthcare.models import VitalSign
+from wearables.services.notification_service import WearableNotificationService
 
 from .models import (
     WearableIntegration, WearableMeasurement, 
-    WithingsProfile, WithingsMeasurement, SyncLog
+    WithingsProfile, WithingsMeasurement, SyncLog, NotificationDelivery
 )
 from .serializers import (
-    WearableIntegrationSerializer, WearableMeasurementSerializer,
-    WithingsProfileSerializer, WithingsMeasurementSerializer,
-    SyncLogSerializer, IntegrationConnectSerializer,
+    PharmaceuticalDataExportSerializer, WearableIntegrationSerializer,
+    WithingsProfileSerializer, WearableMeasurementSerializer,
+    IntegrationConnectSerializer,
     IntegrationCallbackSerializer, IntegrationConnectionStatusSerializer,
     IntegrationDataFetchSerializer, MeasurementSummarySerializer,
     HealthDataConsentSerializer
@@ -33,11 +36,9 @@ from .services import (
     withings_service, apple_health_service, google_fit_service,
     samsung_health_service, fitbit_service
 )
-from healthcare.models import VitalSign
 
-# Configure logging
+User = get_user_model()
 logger = logging.getLogger(__name__)
-
 
 class WearableIntegrationViewSet(viewsets.ModelViewSet):
     """ViewSet for managing wearable device integrations."""
@@ -65,11 +66,100 @@ class WearableIntegrationViewSet(viewsets.ModelViewSet):
             
         # Patients can only see their own integrations
         return self.queryset.filter(user=user)
-    
+
     def perform_create(self, serializer):
         """Set the user when creating a new integration."""
         serializer.save(user=self.request.user)
-    
+
+    @action(detail=False, methods=['post'])
+    def create_pharma_export(self, request):
+        """Create data export for pharmaceutical company."""
+        if request.user.role != 'pharmco':
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = PharmaceuticalDataExportSerializer(data=request.data)
+        if serializer.is_valid():
+            export = serializer.save(pharmaceutical_company=request.user)
+            
+            # Queue export task
+            from .tasks import process_pharmaceutical_export
+            process_pharmaceutical_export.delay(export.id)
+            
+            return Response(PharmaceuticalDataExportSerializer(export).data)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['get'])
+    def adherence_dashboard(self, request):
+        """Get adherence monitoring dashboard for pharmaceutical companies."""
+        if request.user.role not in ['pharmco', 'provider', 'admin']:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get patients with consent for adherence monitoring
+        if request.user.role == 'pharmco':
+            patients = User.objects.filter(
+                role='patient',
+                patient_profile__protocol_adherence_monitoring=True,
+                patient_profile__custom_drug_protocols__isnull=False
+            )
+        else:
+            # For providers, show their patients
+            patients = request.user.primary_patients.filter(
+                patient_profile__protocol_adherence_monitoring=True
+            )
+        
+        dashboard_data = []
+        for patient in patients:
+            # Get recent adherence data
+            recent_notifications = NotificationDelivery.objects.filter(
+                user=patient,
+                notification_type=NotificationDelivery.NotificationType.MEDICATION_REMINDER,
+                sent_at__gte=timezone.now() - timedelta(days=7)
+            )
+            
+            total_notifications = recent_notifications.count()
+            responded_notifications = recent_notifications.filter(user_response='taken').count()
+            adherence_rate = (responded_notifications / total_notifications * 100) if total_notifications > 0 else 0
+            
+            dashboard_data.append({
+                'patient_id': patient.id,
+                'patient_email': patient.email if request.user.role != 'pharmco' else f"Patient_{patient.id}",
+                'adherence_rate': round(adherence_rate, 1),
+                'total_reminders_week': total_notifications,
+                'responses_week': responded_notifications,
+                'last_response': recent_notifications.filter(user_response='taken').first()
+            })
+        
+        return Response({
+            'patients': dashboard_data,
+            'summary': {
+                'total_patients': len(dashboard_data),
+                'avg_adherence': round(sum(p['adherence_rate'] for p in dashboard_data) / len(dashboard_data), 1) if dashboard_data else 0
+            }
+        })
+
+    @action(detail=True, methods=['post'])
+    def send_test_notification(self, request, pk=None):
+        """Send test notification to wearable device."""
+        integration = self.get_object()
+        
+        if request.user != integration.user and not request.user.is_staff:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Send test notification
+        success = WearableNotificationService.send_watch_notification(
+            device_id=integration.platform_user_id,
+            title="Test Notification",
+            message="This is a test notification from your healthcare app.",
+            medication_id=None,
+            is_critical=False
+        )
+        
+        return Response({
+            'success': success,
+            'message': 'Test notification sent' if success else 'Failed to send test notification'
+        })
+
     @swagger_auto_schema(
         request_body=HealthDataConsentSerializer,
         responses={200: WearableIntegrationSerializer}
@@ -1556,3 +1646,4 @@ class LegacyWithingsViewSet(viewsets.ViewSet):
         
         # Call the fetch_data method
         return sync_viewset.fetch_data(request)
+

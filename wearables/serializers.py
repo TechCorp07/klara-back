@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import (
-    WearableIntegration, WearableMeasurement, 
+    NotificationDelivery, PharmaceuticalDataExport, WearableIntegration, WearableMeasurement, 
     WithingsProfile, WithingsMeasurement, SyncLog
 )
 
@@ -185,3 +185,39 @@ class HealthDataConsentSerializer(serializers.Serializer):
 
     class Meta:
         ref_name = "WearablesHealthDataConsentSerializer"
+
+
+class PharmaceuticalDataExportSerializer(serializers.ModelSerializer):
+    """Serializer for pharmaceutical data exports."""
+    
+    class Meta:
+        model = PharmaceuticalDataExport
+        fields = [
+            'id', 'pharmaceutical_company', 'patients', 'data_types', 
+            'date_range_start', 'date_range_end', 'medication_protocols',
+            'status', 'created_at', 'started_at', 'completed_at',
+            'records_exported', 'file_size', 'anonymized', 'consent_verified'
+        ]
+        read_only_fields = [
+            'id', 'pharmaceutical_company', 'status', 'created_at', 
+            'started_at', 'completed_at', 'records_exported', 'file_size'
+        ]
+
+class NotificationDeliverySerializer(serializers.ModelSerializer):
+    """Serializer for notification delivery tracking."""
+    
+    integration_display = serializers.CharField(source='integration.get_integration_type_display', read_only=True)
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    
+    class Meta:
+        model = NotificationDelivery
+        fields = [
+            'id', 'integration', 'integration_display', 'user', 'user_email',
+            'notification_type', 'title', 'message', 'success', 'sent_at',
+            'delivered_at', 'read_at', 'user_response', 'response_time',
+            'metadata', 'medication_id', 'appointment_id'
+        ]
+        read_only_fields = [
+            'id', 'integration_display', 'user_email', 'sent_at'
+        ]
+
