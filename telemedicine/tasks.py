@@ -4,6 +4,9 @@ import logging
 from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Q
+from .services.rare_disease_consultation import RareDiseaseConsultationService
+from .services.notification_service import telemedicine_notifications
+from healthcare.models import Medication
 
 from .models import (
     Appointment, Consultation, Prescription,
@@ -335,3 +338,127 @@ def end_abandoned_consultations():
     
     logger.info(f"Abandoned consultation check completed: {ended_count} consultations ended")
     return f"{ended_count} abandoned consultations ended"
+
+
+@shared_task
+def send_consultation_preparation_reminder(appointment_id, is_final_reminder=False):
+    """
+    Send consultation preparation reminder for rare disease patients.
+    Includes vitals collection, medication adherence check, and symptom updates.
+    """
+    try:
+        appointment = Appointment.objects.get(id=appointment_id)
+        
+        # Check if this is a rare disease consultation
+        if not appointment.medical_record or not appointment.medical_record.has_rare_condition:
+            return "Not a rare disease consultation"
+        
+        # Prepare reminder data
+        from .services.rare_disease_consultation import RareDiseaseConsultationService
+        
+        preparation_data = RareDiseaseConsultationService.prepare_rare_disease_consultation(appointment)
+        
+        # Create preparation checklist for patient
+        patient_checklist = []
+        
+        if preparation_data.get('medication_adherence', {}).get('concerning_medications'):
+            patient_checklist.append("Review your medication adherence with any missed doses")
+        
+        if preparation_data.get('symptom_tracking', {}).get('active_symptoms'):
+            patient_checklist.append("Update your symptom diary with any new or changed symptoms")
+        
+        patient_checklist.extend([
+            "Take your vital signs if you have a home monitoring device",
+            "Prepare a list of questions for your provider",
+            "Ensure your device is charged and internet connection is stable (for video calls)",
+            "Have your current medications list ready"
+        ])
+        
+        reminder_data = {
+            'appointment_id': str(appointment.id),
+            'provider_name': appointment.provider.get_full_name(),
+            'scheduled_time': appointment.scheduled_time.isoformat(),
+            'is_final_reminder': is_final_reminder,
+            'preparation_checklist': patient_checklist,
+            'estimated_duration': appointment.duration_minutes
+        }
+        
+        # Send to patient
+        patient_success = telemedicine_notifications.notification_service.send_email(
+            recipient=appointment.patient.email,
+            subject=f"{'Final ' if is_final_reminder else ''}Preparation Reminder: Upcoming Consultation",
+            template='consultation_preparation_reminder',
+            context=reminder_data
+        )
+        
+        # Send to caregivers
+        caregiver_success = telemedicine_notifications._send_caregiver_notifications(
+            appointment.patient, 
+            reminder_data, 
+            'preparation_reminder'
+        )
+        
+        return f"Preparation reminder sent - Patient: {patient_success}, Caregivers: {caregiver_success}"
+        
+    except Appointment.DoesNotExist:
+        return f"Appointment {appointment_id} not found"
+    except Exception as e:
+        logger.error(f"Error sending consultation preparation reminder: {str(e)}")
+        return f"Error: {str(e)}"
+
+@shared_task
+def sync_consultation_with_medication_reminders(consultation_id):
+    """
+    Sync consultation schedule with medication reminder system.
+    Ensures medication reminders don't conflict with consultation times.
+    """
+    try:
+        consultation = Consultation.objects.get(id=consultation_id)
+        
+        if consultation.status != Consultation.Status.IN_PROGRESS:
+            return "Consultation not in progress"
+        
+        # Get patient's active medications
+        active_medications = Medication.objects.filter(
+            patient=consultation.patient,
+            active=True
+        )
+        
+        # Check for medication reminders during consultation time
+        consultation_start = consultation.start_time or consultation.appointment.scheduled_time
+        consultation_end = consultation_start + timedelta(minutes=consultation.duration or 30)
+        
+        # Import medication reminder models
+        from medication.models import MedicationReminder
+        
+        # Get reminders that would fire during consultation
+        conflicting_reminders = MedicationReminder.objects.filter(
+            patient=consultation.patient,
+            scheduled_time__gte=consultation_start,
+            scheduled_time__lte=consultation_end,
+            is_active=True
+        )
+        
+        notifications_sent = 0
+        
+        for reminder in conflicting_reminders:
+
+            medication_info = {
+                'name': reminder.medication.name,
+                'dosage': reminder.medication.dosage,
+                'scheduled_time': reminder.scheduled_time.isoformat(),
+                'for_rare_condition': reminder.medication.for_rare_condition
+            }
+            
+            if telemedicine_notifications.send_medication_reminder_during_consultation(
+                consultation, medication_info
+            ):
+                notifications_sent += 1
+        
+        return f"Processed {conflicting_reminders.count()} conflicting reminders, sent {notifications_sent} notifications"
+        
+    except Consultation.DoesNotExist:
+        return f"Consultation {consultation_id} not found"
+    except Exception as e:
+        logger.error(f"Error syncing consultation with medication reminders: {str(e)}")
+        return f"Error: {str(e)}"

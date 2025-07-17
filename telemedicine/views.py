@@ -1,8 +1,12 @@
 import logging
+from datetime import datetime, timedelta
 from django.utils import timezone
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.db.models import Q, F
+from django.contrib.auth import get_user_model
+from .services.rare_disease_consultation import RareDiseaseConsultationService
+#from .services.notification_service import telemedicine_notifications
 
 from rest_framework import viewsets, status, filters, permissions
 from rest_framework.decorators import action
@@ -35,6 +39,7 @@ from .services import (
 from healthcare.models import VitalSign
 from wearables.models import WearableMeasurement
 
+User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
@@ -269,14 +274,10 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            from django.contrib.auth import get_user_model
-            User = get_user_model()
-            
             # Get provider
             provider = User.objects.get(id=provider_id, role='provider')
             
             # Parse date
-            from datetime import datetime
             date = datetime.strptime(date_str, '%Y-%m-%d').date()
             
             # Get available slots
@@ -387,6 +388,197 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 {'detail': f'Error getting patient vitals: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(detail=False, methods=['get'])
+    def dashboard_summary(self, request):
+        """Get appointment dashboard summary for different user types."""
+        user = request.user
+        
+        if user.role == 'patient':
+            return self._get_patient_dashboard(request)
+        elif user.role == 'provider':
+            return self._get_provider_dashboard(request)
+        elif user.role == 'caregiver':
+            return self._get_caregiver_dashboard(request)
+        else:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+
+    def _get_patient_dashboard(self, request):
+        """Get patient-specific appointment dashboard."""
+        patient = request.user
+        now = timezone.now()
+        
+        # Get upcoming appointments
+        upcoming = Appointment.objects.filter(
+            patient=patient,
+            scheduled_time__gte=now,
+            status__in=[Appointment.Status.SCHEDULED, Appointment.Status.CONFIRMED]
+        ).order_by('scheduled_time')[:5]
+        
+        # Get recent appointments
+        recent = Appointment.objects.filter(
+            patient=patient,
+            scheduled_time__lt=now
+        ).order_by('-scheduled_time')[:5]
+        
+        # Get rare disease consultation stats
+        rare_condition_appointments = Appointment.objects.filter(
+            patient=patient,
+            medical_record__has_rare_condition=True
+        )
+        
+        # Prepare dashboard data
+        dashboard_data = {
+            'upcoming_appointments': AppointmentSerializer(upcoming, many=True, context={'request': request}).data,
+            'recent_appointments': AppointmentSerializer(recent, many=True, context={'request': request}).data,
+            'statistics': {
+                'total_appointments': Appointment.objects.filter(patient=patient).count(),
+                'completed_appointments': Appointment.objects.filter(
+                    patient=patient, 
+                    status=Appointment.Status.COMPLETED
+                ).count(),
+                'rare_condition_appointments': rare_condition_appointments.count(),
+                'telemedicine_appointments': Appointment.objects.filter(
+                    patient=patient,
+                    appointment_type__in=[
+                        Appointment.AppointmentType.VIDEO_CONSULTATION,
+                        Appointment.AppointmentType.PHONE_CONSULTATION
+                    ]
+                ).count()
+            },
+            'next_appointment': AppointmentSerializer(upcoming.first(), context={'request': request}).data if upcoming.exists() else None,
+            'care_team_size': self._get_care_team_size(patient),
+            'consultation_preparation': self._get_consultation_preparation_status(patient)
+        }
+        
+        return Response(dashboard_data)
+
+    def _get_provider_dashboard(self, request):
+        """Get provider-specific appointment dashboard."""
+        provider = request.user
+        now = timezone.now()
+        today = now.date()
+        
+        # Get today's appointments
+        today_appointments = Appointment.objects.filter(
+            provider=provider,
+            scheduled_time__date=today
+        ).order_by('scheduled_time')
+        
+        # Get upcoming appointments (next 7 days)
+        upcoming = Appointment.objects.filter(
+            provider=provider,
+            scheduled_time__gte=now,
+            scheduled_time__date__lte=today + timedelta(days=7),
+            status__in=[Appointment.Status.SCHEDULED, Appointment.Status.CONFIRMED]
+        ).order_by('scheduled_time')
+        
+        # Get rare disease patients requiring special attention
+        rare_disease_patients = Appointment.objects.filter(
+            provider=provider,
+            medical_record__has_rare_condition=True,
+            scheduled_time__gte=now
+        ).values('patient').distinct()
+        
+        dashboard_data = {
+            'today_appointments': AppointmentSerializer(today_appointments, many=True, context={'request': request}).data,
+            'upcoming_appointments': AppointmentSerializer(upcoming[:10], many=True, context={'request': request}).data,
+            'statistics': {
+                'today_total': today_appointments.count(),
+                'today_completed': today_appointments.filter(status=Appointment.Status.COMPLETED).count(),
+                'upcoming_week': upcoming.count(),
+                'rare_disease_patients': rare_disease_patients.count(),
+                'telemedicine_today': today_appointments.filter(
+                    appointment_type__in=[
+                        Appointment.AppointmentType.VIDEO_CONSULTATION,
+                        Appointment.AppointmentType.PHONE_CONSULTATION
+                    ]
+                ).count()
+            },
+            'current_consultation': self._get_current_consultation(provider),
+            'waiting_room_status': self._get_waiting_room_status(provider),
+            'alerts': self._get_provider_alerts(provider)
+        }
+        
+        return Response(dashboard_data)
+
+    def _get_caregiver_dashboard(self, request):
+        """Get caregiver-specific appointment dashboard."""
+        caregiver = request.user
+        
+        # Get patients under caregiver's care
+        if hasattr(caregiver, 'caregiver_profile'):
+            # Get patients this caregiver is authorized for
+            from users.models import PatientAuthorizedCaregiver
+            
+            authorized_patients = User.objects.filter(
+                patient_authorizations__caregiver=caregiver,
+                patient_authorizations__access_level__in=['FULL', 'SCHEDULE']
+            )
+            
+            # Get appointments for these patients
+            upcoming_appointments = Appointment.objects.filter(
+                patient__in=authorized_patients,
+                scheduled_time__gte=timezone.now(),
+                status__in=[Appointment.Status.SCHEDULED, Appointment.Status.CONFIRMED]
+            ).order_by('scheduled_time')[:10]
+            
+            # Get recent appointments
+            recent_appointments = Appointment.objects.filter(
+                patient__in=authorized_patients,
+                scheduled_time__lt=timezone.now()
+            ).order_by('-scheduled_time')[:5]
+            
+            dashboard_data = {
+                'patients_under_care': authorized_patients.count(),
+                'upcoming_appointments': AppointmentSerializer(upcoming_appointments, many=True, context={'request': request}).data,
+                'recent_appointments': AppointmentSerializer(recent_appointments, many=True, context={'request': request}).data,
+                'care_alerts': self._get_caregiver_alerts(authorized_patients),
+                'medication_reminders': self._get_caregiver_medication_reminders(authorized_patients)
+            }
+            
+            return Response(dashboard_data)
+        
+        return Response({'error': 'Caregiver profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['post'])
+    def prepare_rare_disease_consultation(self, request, pk=None):
+        """Prepare data for rare disease consultation."""
+        appointment = self.get_object()
+        
+        if request.user != appointment.provider:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        preparation_data = RareDiseaseConsultationService.prepare_rare_disease_consultation(appointment)
+        
+        if 'error' in preparation_data:
+            return Response(preparation_data, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response(preparation_data)
+
+    @action(detail=True, methods=['post'])
+    def send_care_team_notification(self, request, pk=None):
+        """Send notification to patient's care team."""
+        appointment = self.get_object()
+        
+        if request.user not in [appointment.patient, appointment.provider]:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        
+        notification_type = request.data.get('notification_type', 'general')
+        message = request.data.get('message', '')
+        
+        # Get consultation if exists
+        consultation = appointment.consultations.first()
+        
+        if consultation:
+            success = RareDiseaseConsultationService.notify_care_team(consultation, notification_type)
+            
+            if success:
+                return Response({'message': 'Care team notified successfully'})
+            else:
+                return Response({'error': 'Failed to notify care team'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({'error': 'No consultation found'}, status=status.HTTP_404_NOT_FOUND)
 
 
 class ConsultationViewSet(viewsets.ModelViewSet):
@@ -832,9 +1024,7 @@ class ProviderAvailabilityViewSet(viewsets.ModelViewSet):
         
         if start_date:
             try:
-                from datetime import datetime
                 start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-                from django.utils import timezone
                 start_datetime = timezone.make_aware(datetime.combine(start_date, datetime.min.time()))
                 queryset = queryset.filter(end_time__gte=start_datetime)
             except ValueError:
@@ -842,9 +1032,7 @@ class ProviderAvailabilityViewSet(viewsets.ModelViewSet):
                 
         if end_date:
             try:
-                from datetime import datetime
                 end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
-                from django.utils import timezone
                 end_datetime = timezone.make_aware(datetime.combine(end_date, datetime.max.time()))
                 queryset = queryset.filter(start_time__lte=end_datetime)
             except ValueError:
@@ -911,14 +1099,10 @@ class ProviderAvailabilityViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            from django.contrib.auth import get_user_model
-            User = get_user_model()
-            
             # Get provider
             provider = User.objects.get(id=provider_id, role='provider')
             
             # Parse dates
-            from datetime import datetime
             start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
             
             if end_date:

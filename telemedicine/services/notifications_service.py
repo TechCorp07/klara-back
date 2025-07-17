@@ -1,379 +1,317 @@
-import logging
-from django.conf import settings
+# telemedicine/services/notification_service.py
 from django.utils import timezone
-from django.core.mail import EmailMultiAlternatives
-from django.template.loader import render_to_string
-from django.utils.html import strip_tags
+from django.conf import settings
+from datetime import timedelta
+from typing import Dict, List, Any, Optional
+import logging
+
+from ..models import Appointment, Consultation
+from communication.services import NotificationService
 
 logger = logging.getLogger(__name__)
 
-class NotificationException(Exception):
-    """Exception for notification errors."""
-    pass
-
-
-def send_appointment_reminder(appointment):
+class TelemedicineNotificationService:
     """
-    Send appointment reminder to the patient.
-    
-    Args:
-        appointment: Appointment object to send reminder for
-    
-    Returns:
-        bool: True if notification was sent successfully
-    
-    Raises:
-        NotificationException: If sending fails
+    Enhanced notification service for telemedicine appointments.
+    Specialized for rare disease patients with caregiver and family notifications.
     """
-    try:
-        if not appointment.patient.email:
-            logger.warning(f"Cannot send reminder - no email for patient {appointment.patient.id}")
-            return False
+    
+    def __init__(self):
+        self.notification_service = NotificationService()
+    
+    def send_appointment_confirmation(self, appointment: Appointment) -> bool:
+        """Send appointment confirmation with rare disease specific information."""
+        try:
+            patient = appointment.patient
             
-        # Check if appointment is suitable for reminder
-        if appointment.status not in ['scheduled', 'confirmed']:
-            logger.info(f"Not sending reminder for {appointment.id} - status: {appointment.status}")
-            return False
-            
-        # Get appointment details for template
-        context = {
-            'patient_name': appointment.patient.get_full_name(),
-            'doctor_name': f"Dr. {appointment.provider.last_name}" if appointment.provider else "Your provider",
-            'appointment_time': appointment.scheduled_time.strftime('%A, %B %d, %Y at %I:%M %p'),
-            'appointment_type': appointment.get_appointment_type_display(),
-            'appointment_id': appointment.id,
-            'is_video': appointment.appointment_type == 'video_consultation',
-            'portal_url': settings.FRONTEND_URL,
-        }
-        
-        # Render email content
-        html_content = render_to_string('telemedicine/emails/appointment_reminder.html', context)
-        text_content = strip_tags(html_content)
-        
-        # Create email
-        subject = f"Reminder: Your Appointment on {appointment.scheduled_time.strftime('%B %d')}"
-        from_email = settings.DEFAULT_FROM_EMAIL
-        to_email = appointment.patient.email
-        
-        # Send email
-        email = EmailMultiAlternatives(subject, text_content, from_email, [to_email])
-        email.attach_alternative(html_content, "text/html")
-        email.send()
-        
-        # Update appointment reminder status
-        appointment.reminder_sent = True
-        appointment.reminder_sent_time = timezone.now()
-        appointment.save(update_fields=['reminder_sent', 'reminder_sent_time'])
-        
-        logger.info(f"Appointment reminder sent for appointment {appointment.id}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to send appointment reminder: {str(e)}")
-        raise NotificationException(f"Failed to send appointment reminder: {str(e)}")
-
-
-def send_appointment_confirmation(appointment):
-    """
-    Send appointment confirmation to the patient.
-    
-    Args:
-        appointment: Newly created or confirmed appointment
-    
-    Returns:
-        bool: True if notification was sent successfully
-    
-    Raises:
-        NotificationException: If sending fails
-    """
-    try:
-        if not appointment.patient.email:
-            logger.warning(f"Cannot send confirmation - no email for patient {appointment.patient.id}")
-            return False
-            
-        # Get appointment details for template
-        context = {
-            'patient_name': appointment.patient.get_full_name(),
-            'doctor_name': f"Dr. {appointment.provider.last_name}" if appointment.provider else "Your provider",
-            'appointment_time': appointment.scheduled_time.strftime('%A, %B %d, %Y at %I:%M %p'),
-            'appointment_end_time': appointment.end_time.strftime('%I:%M %p'),
-            'appointment_type': appointment.get_appointment_type_display(),
-            'appointment_id': appointment.id,
-            'is_video': appointment.appointment_type == 'video_consultation',
-            'portal_url': settings.FRONTEND_URL,
-            'reason': appointment.reason
-        }
-        
-        # Render email content
-        html_content = render_to_string('telemedicine/emails/appointment_confirmation.html', context)
-        text_content = strip_tags(html_content)
-        
-        # Create email
-        subject = f"Appointment Confirmed for {appointment.scheduled_time.strftime('%B %d')}"
-        from_email = settings.DEFAULT_FROM_EMAIL
-        to_email = appointment.patient.email
-        
-        # Send email
-        email = EmailMultiAlternatives(subject, text_content, from_email, [to_email])
-        email.attach_alternative(html_content, "text/html")
-        email.send()
-        
-        logger.info(f"Appointment confirmation sent for appointment {appointment.id}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to send appointment confirmation: {str(e)}")
-        raise NotificationException(f"Failed to send appointment confirmation: {str(e)}")
-
-
-def send_appointment_cancellation(appointment, reason=None, notify_provider=True):
-    """
-    Send appointment cancellation notification.
-    
-    Args:
-        appointment: Cancelled appointment
-        reason: Reason for cancellation
-        notify_provider: Whether to notify the provider as well
-    
-    Returns:
-        bool: True if notification was sent successfully
-    
-    Raises:
-        NotificationException: If sending fails
-    """
-    try:
-        success = False
-        
-        # Notify patient
-        if appointment.patient.email:
-            context = {
-                'recipient_name': appointment.patient.get_full_name(),
-                'doctor_name': f"Dr. {appointment.provider.last_name}" if appointment.provider else "Your provider",
-                'appointment_time': appointment.scheduled_time.strftime('%A, %B %d, %Y at %I:%M %p'),
+            # Prepare notification data
+            notification_data = {
+                'appointment_id': str(appointment.id),
+                'patient_name': patient.get_full_name(),
+                'provider_name': appointment.provider.get_full_name(),
                 'appointment_type': appointment.get_appointment_type_display(),
-                'reason': reason or "The appointment was cancelled.",
-                'portal_url': settings.FRONTEND_URL,
-                'is_recipient_patient': True
+                'scheduled_time': appointment.scheduled_time.isoformat(),
+                'duration': appointment.duration_minutes,
+                'is_telemedicine': appointment.is_telemedicine,
+                'rare_condition_focus': self._is_rare_condition_appointment(appointment)
             }
             
-            # Render email content
-            html_content = render_to_string('telemedicine/emails/appointment_cancellation.html', context)
-            text_content = strip_tags(html_content)
+            # Send to patient
+            patient_success = self._send_patient_confirmation(patient, notification_data)
             
-            # Create email
-            subject = f"Appointment Cancelled: {appointment.scheduled_time.strftime('%B %d')}"
-            from_email = settings.DEFAULT_FROM_EMAIL
-            to_email = appointment.patient.email
+            # Send to authorized caregivers
+            caregiver_success = self._send_caregiver_notifications(patient, notification_data, 'confirmation')
             
-            # Send email
-            email = EmailMultiAlternatives(subject, text_content, from_email, [to_email])
-            email.attach_alternative(html_content, "text/html")
-            email.send()
-            success = True
+            # Send pre-consultation preparation reminders for rare disease patients
+            if notification_data['rare_condition_focus']:
+                self._schedule_preparation_reminders(appointment)
             
-        # Notify provider if requested
-        if notify_provider and appointment.provider.email:
-            context = {
-                'recipient_name': appointment.provider.get_full_name(),
-                'patient_name': appointment.patient.get_full_name(),
-                'appointment_time': appointment.scheduled_time.strftime('%A, %B %d, %Y at %I:%M %p'),
-                'appointment_type': appointment.get_appointment_type_display(),
-                'reason': reason or "The appointment was cancelled.",
-                'portal_url': settings.FRONTEND_URL,
-                'is_recipient_patient': False
+            return patient_success
+            
+        except Exception as e:
+            logger.error(f"Error sending appointment confirmation: {str(e)}")
+            return False
+    
+    def send_medication_reminder_during_consultation(self, consultation: Consultation, 
+                                                   medication_info: Dict[str, Any]) -> bool:
+        """Send medication reminder during active consultation."""
+        try:
+            patient = consultation.patient
+            
+            # Check if consultation is in progress
+            if consultation.status != Consultation.Status.IN_PROGRESS:
+                return False
+            
+            # Prepare reminder data
+            reminder_data = {
+                'consultation_id': str(consultation.id),
+                'medication_name': medication_info['name'],
+                'dosage': medication_info['dosage'],
+                'scheduled_time': medication_info['scheduled_time'],
+                'is_critical': medication_info.get('for_rare_condition', False),
+                'provider_name': consultation.provider.get_full_name()
             }
             
-            # Render email content
-            html_content = render_to_string('telemedicine/emails/appointment_cancellation.html', context)
-            text_content = strip_tags(html_content)
+            # Send immediate notification to patient
+            success = self.notification_service.send_push_notification(
+                user=patient,
+                title="Medication Reminder During Consultation",
+                message=f"Don't forget to take your {medication_info['name']} after your consultation",
+                data={
+                    'type': 'medication_reminder',
+                    'consultation_id': str(consultation.id),
+                    'medication_info': reminder_data
+                }
+            )
             
-            # Create email
-            subject = f"Appointment Cancelled: {appointment.patient.get_full_name()} on {appointment.scheduled_time.strftime('%B %d')}"
-            from_email = settings.DEFAULT_FROM_EMAIL
-            to_email = appointment.provider.email
+            # Notify provider about reminder sent
+            if success:
+                self.notification_service.send_push_notification(
+                    user=consultation.provider,
+                    title="Medication Reminder Sent",
+                    message=f"Reminder sent to {patient.first_name} for {medication_info['name']}",
+                    data={
+                        'type': 'provider_notification',
+                        'consultation_id': str(consultation.id)
+                    }
+                )
             
-            # Send email
-            email = EmailMultiAlternatives(subject, text_content, from_email, [to_email])
-            email.attach_alternative(html_content, "text/html")
-            email.send()
-            success = True
+            return success
             
-        if success:
-            logger.info(f"Appointment cancellation notification sent for appointment {appointment.id}")
-        else:
-            logger.warning(f"Could not send cancellation notification - no valid emails found for appointment {appointment.id}")
+        except Exception as e:
+            logger.error(f"Error sending medication reminder during consultation: {str(e)}")
+            return False
+    
+    def send_family_consultation_update(self, consultation: Consultation, 
+                                      update_type: str, update_data: Dict[str, Any]) -> bool:
+        """Send consultation updates to family members for rare disease patients."""
+        try:
+            patient = consultation.patient
             
+            # Check if patient has rare condition and family notification consent
+            if not self._is_rare_condition_appointment(consultation.appointment):
+                return True  # Not applicable
+            
+            # Check family notification consent
+            if not hasattr(patient, 'patient_profile') or not patient.patient_profile.genetic_data_sharing_consent:
+                return True  # No consent for family sharing
+            
+            # Get family members (this would integrate with your family history system)
+            family_members = self._get_authorized_family_members(patient)
+            
+            if not family_members:
+                return True  # No family members to notify
+            
+            # Prepare family-safe update data (remove PHI)
+            family_update_data = {
+                'patient_first_name': patient.first_name,
+                'consultation_date': consultation.appointment.scheduled_time.date().isoformat(),
+                'update_type': update_type,
+                'provider_name': consultation.provider.get_full_name(),
+                'general_status': update_data.get('general_status', 'Consultation completed'),
+                'next_appointment': update_data.get('next_appointment_date')
+            }
+            
+            # Send to family members
+            success_count = 0
+            for family_member in family_members:
+                if self.notification_service.send_email(
+                    recipient=family_member['email'],
+                    subject=f"Health Update for {patient.first_name}",
+                    template='family_consultation_update',
+                    context=family_update_data
+                ):
+                    success_count += 1
+            
+            return success_count > 0
+            
+        except Exception as e:
+            logger.error(f"Error sending family consultation update: {str(e)}")
+            return False
+    
+    def send_caregiver_consultation_summary(self, consultation: Consultation, 
+                                          care_plan: Dict[str, Any]) -> bool:
+        """Send consultation summary and care plan to authorized caregivers."""
+        try:
+            patient = consultation.patient
+            
+            # Get authorized caregivers with full access
+            authorized_caregivers = []
+            if hasattr(patient, 'patient_profile'):
+                caregiver_auths = patient.patient_profile.caregiver_authorizations.filter(
+                    access_level='FULL'
+                )
+                authorized_caregivers = [auth.caregiver for auth in caregiver_auths]
+            
+            if not authorized_caregivers:
+                return True  # No caregivers to notify
+            
+            # Prepare caregiver summary
+            caregiver_summary = {
+                'patient_name': patient.get_full_name(),
+                'consultation_date': consultation.appointment.scheduled_time.isoformat(),
+                'provider_name': consultation.provider.get_full_name(),
+                'consultation_duration': consultation.duration,
+                'medication_changes': care_plan.get('medication_plan', {}).get('changes', []),
+                'monitoring_instructions': care_plan.get('monitoring_plan', {}).get('caregiver_tasks', []),
+                'next_appointment': care_plan.get('appointment_schedule', {}).get('next_appointment'),
+                'emergency_contacts': care_plan.get('emergency_contacts', []),
+                'care_instructions': care_plan.get('caregiver_instructions', {})
+            }
+            
+            # Send to each caregiver
+            success_count = 0
+            for caregiver in authorized_caregivers:
+                if self.notification_service.send_email(
+                    recipient=caregiver.email,
+                    subject=f"Care Plan Update for {patient.first_name}",
+                    template='caregiver_consultation_summary',
+                    context=caregiver_summary
+                ):
+                    success_count += 1
+                
+                # Also send push notification if caregiver has mobile app
+                self.notification_service.send_push_notification(
+                    user=caregiver,
+                    title="New Care Plan Available",
+                    message=f"Updated care plan for {patient.first_name} is ready for review",
+                    data={
+                        'type': 'care_plan_update',
+                        'patient_id': str(patient.id),
+                        'consultation_id': str(consultation.id)
+                    }
+                )
+            
+            return success_count > 0
+            
+        except Exception as e:
+            logger.error(f"Error sending caregiver consultation summary: {str(e)}")
+            return False
+    
+    def _is_rare_condition_appointment(self, appointment: Appointment) -> bool:
+        """Check if appointment is for rare condition patient."""
+        return appointment.medical_record and appointment.medical_record.has_rare_condition
+    
+    def _send_patient_confirmation(self, patient, notification_data: Dict[str, Any]) -> bool:
+        """Send appointment confirmation to patient."""
+        
+        # Determine notification methods based on patient preferences
+        notification_methods = []
+        if hasattr(patient, 'patient_profile'):
+            notification_methods = patient.patient_profile.appointment_reminder_methods
+        
+        if not notification_methods:
+            notification_methods = ['email', 'push']  # Default methods
+        
+        success = True
+        
+        # Send email if enabled
+        if 'email' in notification_methods:
+            email_success = self.notification_service.send_email(
+                recipient=patient.email,
+                subject="Appointment Confirmation",
+                template='appointment_confirmation',
+                context=notification_data
+            )
+            success = success and email_success
+        
+        # Send push notification if enabled
+        if 'push' in notification_methods:
+            push_success = self.notification_service.send_push_notification(
+                user=patient,
+                title="Appointment Confirmed",
+                message=f"Your {notification_data['appointment_type']} with {notification_data['provider_name']} is confirmed",
+                data={
+                    'type': 'appointment_confirmation',
+                    'appointment_id': notification_data['appointment_id']
+                }
+            )
+            success = success and push_success
+        
+        # Send SMS if enabled
+        if 'sms' in notification_methods and patient.phone_number:
+            sms_success = self.notification_service.send_sms(
+                phone_number=patient.phone_number,
+                message=f"Appointment confirmed: {notification_data['appointment_type']} with {notification_data['provider_name']} on {notification_data['scheduled_time']}"
+            )
+            success = success and sms_success
+        
         return success
+    
+    def _send_caregiver_notifications(self, patient, notification_data: Dict[str, Any], 
+                                    notification_type: str) -> bool:
+        """Send notifications to authorized caregivers."""
         
-    except Exception as e:
-        logger.error(f"Failed to send appointment cancellation notification: {str(e)}")
-        raise NotificationException(f"Failed to send appointment cancellation notification: {str(e)}")
+        if not hasattr(patient, 'patient_profile'):
+            return True
+        
+        # Get caregivers with scheduling access
+        caregiver_auths = patient.patient_profile.caregiver_authorizations.filter(
+            access_level__in=['FULL', 'SCHEDULE']
+        )
+        
+        success_count = 0
+        for auth in caregiver_auths:
+            caregiver = auth.caregiver
+            
+            # Send email notification
+            if self.notification_service.send_email(
+                recipient=caregiver.email,
+                subject=f"Appointment {notification_type.title()} for {patient.first_name}",
+                template=f'caregiver_appointment_{notification_type}',
+                context=notification_data
+            ):
+                success_count += 1
+        
+        return success_count > 0
+    
+    def _schedule_preparation_reminders(self, appointment: Appointment):
+        """Schedule preparation reminders for rare disease consultations."""
+        from ..tasks import send_consultation_preparation_reminder
+        
+        # Schedule reminder 24 hours before appointment
+        reminder_time = appointment.scheduled_time - timedelta(hours=24)
+        
+        if reminder_time > timezone.now():
+            send_consultation_preparation_reminder.apply_async(
+                args=[appointment.id],
+                eta=reminder_time
+            )
+        
+        # Schedule reminder 2 hours before appointment
+        final_reminder_time = appointment.scheduled_time - timedelta(hours=2)
+        
+        if final_reminder_time > timezone.now():
+            send_consultation_preparation_reminder.apply_async(
+                args=[appointment.id, True],  # True for final reminder
+                eta=final_reminder_time
+            )
+    
+    def _get_authorized_family_members(self, patient) -> List[Dict[str, Any]]:
+        """Get family members authorized to receive health updates."""
+        # This would integrate with your family history system
+        # For now, return empty list - implement based on your family data structure
+        return []
 
-
-def send_consultation_start_notification(consultation):
-    """
-    Send notification when consultation is starting.
-    
-    Args:
-        consultation: Consultation that is starting
-    
-    Returns:
-        bool: True if notification was sent successfully
-    
-    Raises:
-        NotificationException: If sending fails
-    """
-    try:
-        appointment = consultation.appointment
-        success = False
-        
-        if not appointment:
-            logger.warning(f"Cannot send start notification - consultation {consultation.id} has no appointment")
-            return False
-            
-        # Notify patient
-        if appointment.patient.email:
-            context = {
-                'patient_name': appointment.patient.get_full_name(),
-                'doctor_name': f"Dr. {appointment.provider.last_name}" if appointment.provider else "Your provider",
-                'join_url': consultation.join_url,
-                'meeting_id': consultation.meeting_id,
-                'password': consultation.password,
-                'platform': consultation.get_platform_display(),
-                'portal_url': settings.FRONTEND_URL,
-            }
-            
-            # Render email content
-            html_content = render_to_string('telemedicine/emails/consultation_starting.html', context)
-            text_content = strip_tags(html_content)
-            
-            # Create email
-            subject = "Your Virtual Consultation is Starting Soon"
-            from_email = settings.DEFAULT_FROM_EMAIL
-            to_email = appointment.patient.email
-            
-            # Send email
-            email = EmailMultiAlternatives(subject, text_content, from_email, [to_email])
-            email.attach_alternative(html_content, "text/html")
-            email.send()
-            success = True
-            
-        if success:
-            logger.info(f"Consultation start notification sent for consultation {consultation.id}")
-        else:
-            logger.warning(f"Could not send consultation start notification - no valid email for patient")
-            
-        return success
-        
-    except Exception as e:
-        logger.error(f"Failed to send consultation start notification: {str(e)}")
-        raise NotificationException(f"Failed to send consultation start notification: {str(e)}")
-
-
-def send_prescription_notification(prescription):
-    """
-    Notify patient about new prescription.
-    
-    Args:
-        prescription: Prescription that was created or updated
-    
-    Returns:
-        bool: True if notification was sent successfully
-    
-    Raises:
-        NotificationException: If sending fails
-    """
-    try:
-        if not prescription.patient.email:
-            logger.warning(f"Cannot send prescription notification - no email for patient {prescription.patient.id}")
-            return False
-            
-        # Get prescription details for template
-        context = {
-            'patient_name': prescription.patient.get_full_name(),
-            'doctor_name': f"Dr. {prescription.provider.last_name}" if prescription.provider else "Your provider",
-            'medication_name': prescription.medication_name,
-            'dosage': prescription.dosage,
-            'frequency': prescription.frequency,
-            'instructions': prescription.instructions,
-            'refills': prescription.refills,
-            'portal_url': settings.FRONTEND_URL,
-        }
-        
-        # Render email content
-        html_content = render_to_string('telemedicine/emails/new_prescription.html', context)
-        text_content = strip_tags(html_content)
-        
-        # Create email
-        subject = f"New Prescription: {prescription.medication_name}"
-        from_email = settings.DEFAULT_FROM_EMAIL
-        to_email = prescription.patient.email
-        
-        # Send email
-        email = EmailMultiAlternatives(subject, text_content, from_email, [to_email])
-        email.attach_alternative(html_content, "text/html")
-        email.send()
-        
-        # Update prescription notification status
-        prescription.patient_notified = True
-        prescription.patient_notification_time = timezone.now()
-        prescription.save(update_fields=['patient_notified', 'patient_notification_time'])
-        
-        logger.info(f"Prescription notification sent for prescription {prescription.id}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to send prescription notification: {str(e)}")
-        raise NotificationException(f"Failed to send prescription notification: {str(e)}")
-
-
-def send_sms_reminder(appointment):
-    """
-    Send SMS reminder for appointment if SMS service is configured.
-    
-    Args:
-        appointment: Appointment to send reminder for
-    
-    Returns:
-        bool: True if SMS was sent successfully
-    
-    Raises:
-        NotificationException: If sending fails
-    """
-    # This is a placeholder for SMS integration
-    # In a real implementation, you would integrate with Twilio, Vonage, or another SMS provider
-    
-    # Skip if SMS service is not configured
-    if not hasattr(settings, 'SMS_ENABLED') or not settings.SMS_ENABLED:
-        logger.info("SMS service not enabled - skipping SMS reminder")
-        return False
-        
-    try:
-        # Check for phone number
-        if not appointment.patient.phone_number:
-            logger.warning(f"Cannot send SMS reminder - no phone number for patient {appointment.patient.id}")
-            return False
-            
-        # Check if appointment is suitable for reminder
-        if appointment.status not in ['scheduled', 'confirmed']:
-            logger.info(f"Not sending SMS reminder for {appointment.id} - status: {appointment.status}")
-            return False
-            
-        # Log the attempt (actual implementation would send the SMS)
-        logger.info(f"SMS reminder would be sent to {appointment.patient.phone_number} for appointment {appointment.id}")
-        
-        # In a real implementation, you would call the SMS service here
-        # Example with Twilio:
-        # from twilio.rest import Client
-        # client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-        # message = client.messages.create(
-        #     body=f"Reminder: Your appointment with Dr. {appointment.provider.last_name} is on {appointment.scheduled_time.strftime('%B %d at %I:%M %p')}.",
-        #     from_=settings.TWILIO_PHONE_NUMBER,
-        #     to=appointment.patient.phone_number
-        # )
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to send SMS reminder: {str(e)}")
-        raise NotificationException(f"Failed to send SMS reminder: {str(e)}")
+# Create service instance for use by other modules
+telemedicine_notifications = TelemedicineNotificationService()
