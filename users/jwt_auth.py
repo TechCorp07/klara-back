@@ -338,25 +338,54 @@ class JWTAuthenticationManager:
     
     @classmethod
     def _get_user_permissions(cls, user: User) -> Dict[str, Any]:
-        """
-        Get comprehensive user permissions for embedding in JWT.
-        This eliminates database calls during authorization checks.
-        """
+        """Enhanced permissions for rare disease healthcare platform."""
         
-        # This should call your existing permission system
-        # Modify based on your current permission structure
-        return {
+        base_permissions = {
             'role': user.role,
-            'is_admin': user.role in ['admin', 'superadmin'],
-            'is_superadmin': user.role == 'superadmin',
+            'is_admin': user.role in ['admin', 'superuser'],
+            'is_superuser': user.role == 'superuser',
             'is_staff': user.is_staff,
-            'can_access_admin': user.role in ['admin', 'superadmin'],
-            'can_manage_users': user.role in ['admin', 'superadmin'],
-            'can_access_patient_data': user.role in ['patient', 'provider', 'caregiver', 'admin', 'superadmin'],
-            'can_access_research_data': user.role in ['researcher', 'pharmco', 'admin', 'superadmin'],
-            'can_emergency_access': user.role in ['provider', 'admin', 'superadmin'],
-            'pharmaceutical_tenants': [str(t.id) for t in user.pharmaceutical_tenants.all()],
         }
+        
+        # Role-specific permissions
+        if user.role == 'patient':
+            base_permissions.update({
+                'can_view_own_data': True,
+                'can_authorize_caregivers': True,
+                'can_consent_to_research': True,
+                'can_manage_notifications': True,
+                'can_connect_devices': True,
+            })
+        elif user.role == 'provider':
+            base_permissions.update({
+                'can_access_patient_data': True,
+                'can_prescribe_medications': True,
+                'can_schedule_appointments': True,
+                'can_emergency_access': True,
+                'can_view_adherence_data': True,
+            })
+        elif user.role == 'pharmco':
+            base_permissions.update({
+                'can_view_aggregated_data': True,
+                'can_monitor_drug_protocols': True,
+                'can_access_trial_data': True,
+                'can_generate_safety_reports': True,
+            })
+        elif user.role == 'researcher':
+            base_permissions.update({
+                'can_request_data_access': True,
+                'can_view_consented_data': True,
+                'can_export_research_data': True,
+            })
+        elif user.role == 'compliance':
+            base_permissions.update({
+                'can_audit_system': True,
+                'can_view_access_logs': True,
+                'can_generate_compliance_reports': True,
+                'can_review_consent_records': True,
+            })
+        
+        return base_permissions
     
     @classmethod
     def _check_emergency_access_permissions(cls, user: User) -> bool:

@@ -57,6 +57,7 @@ class User(AbstractUser):
         PROVIDER = 'provider', _('Healthcare Provider')
         PHARMCO = 'pharmco', _('Pharmaceutical Company')
         ADMIN = 'admin', _('Administrator')
+        SUPERUSER = 'superuser', _('Super Administrator')
         CAREGIVER = 'caregiver', _('Caregiver')
         RESEARCHER = 'researcher', _('Researcher')
         COMPLIANCE = 'compliance', _('Compliance Officer')
@@ -153,85 +154,62 @@ class User(AbstractUser):
         # Create profile after approval
         if not self.profile_created:
             self.create_profile()
-    
+
     def create_profile(self):
         """Create the appropriate profile based on user role with stored registration data."""
         if self.profile_created:
             return
-        
-        # Get stored registration data from TemporaryRegistrationData if it exists
-        # For now, we'll create basic profiles and let users complete them later
-        
+    
         try:
-            if self.role == 'patient':
-                profile = PatientProfile.objects.create(user=self)
-                
-            elif self.role == 'provider':
-                # Try to get stored data from registration
-                stored_data = getattr(self, '_registration_data', {})
-                profile = ProviderProfile.objects.create(
+            # Get stored registration data
+            reg_data = TemporaryRegistrationData.objects.get(email=self.email)
+            profile_data = reg_data.profile_data
+            
+            if self.role == self.Role.PATIENT:
+                PatientProfile.objects.create(
                     user=self,
-                    medical_license_number=stored_data.get('medical_license_number', ''),
-                    npi_number=stored_data.get('npi_number', ''),
-                    specialty=stored_data.get('specialty', 'OTHER'),
-                    practice_name=stored_data.get('practice_name', ''),
-                    practice_address=stored_data.get('practice_address', ''),
-                    accepting_new_patients=stored_data.get('accepting_new_patients', True),
+                    **{k: v for k, v in profile_data.items() if hasattr(PatientProfile, k)}
                 )
-                
-            elif self.role == 'pharmco':
-                stored_data = getattr(self, '_registration_data', {})
-                profile = PharmcoProfile.objects.create(
+            elif self.role == self.Role.PROVIDER:
+                ProviderProfile.objects.create(
                     user=self,
-                    company_name=stored_data.get('company_name', ''),
-                    role_at_company=stored_data.get('role_at_company', 'OTHER'),
-                    regulatory_id=stored_data.get('regulatory_id', ''),
-                    primary_research_focus=stored_data.get('primary_research_focus', 'OTHER'),
+                    **{k: v for k, v in profile_data.items() if hasattr(ProviderProfile, k)}
                 )
-                
-            elif self.role == 'caregiver':
-                stored_data = getattr(self, '_registration_data', {})
-                profile = CaregiverProfile.objects.create(
+            elif self.role == self.Role.PHARMCO:
+                PharmcoProfile.objects.create(
                     user=self,
-                    relationship_to_patient=stored_data.get('relationship_to_patient', 'OTHER'),
-                    caregiver_type=stored_data.get('caregiver_type', 'OTHER'),
-                    patient_email=stored_data.get('patient_email', ''),
+                    **{k: v for k, v in profile_data.items() if hasattr(PharmcoProfile, k)}
                 )
-                
-            elif self.role == 'researcher':
-                stored_data = getattr(self, '_registration_data', {})
-                profile = ResearcherProfile.objects.create(
+            elif self.role == self.Role.CAREGIVER:
+                CaregiverProfile.objects.create(
                     user=self,
-                    institution=stored_data.get('institution', ''),
-                    primary_research_area=stored_data.get('primary_research_area', 'OTHER'),
-                    qualifications_background=stored_data.get('qualifications_background', ''),
-                    irb_approval_confirmed=stored_data.get('irb_approval_confirmed', False),
+                    **{k: v for k, v in profile_data.items() if hasattr(CaregiverProfile, k)}
                 )
-                
-            elif self.role == 'compliance':
-                stored_data = getattr(self, '_registration_data', {})
-                profile = ComplianceProfile.objects.create(
+            elif self.role == self.Role.RESEARCHER:
+                ResearcherProfile.objects.create(
                     user=self,
-                    organization=stored_data.get('organization', ''),
-                    job_title=stored_data.get('job_title', ''),
-                    compliance_certification=stored_data.get('compliance_certification', 'OTHER'),
-                    primary_specialization=stored_data.get('primary_specialization', 'GENERAL'),
-                    regulatory_experience=stored_data.get('regulatory_experience', ''),
+                    **{k: v for k, v in profile_data.items() if hasattr(ResearcherProfile, k)}
+                )
+            elif self.role == self.Role.COMPLIANCE:
+                ComplianceProfile.objects.create(
+                    user=self,
+                    **{k: v for k, v in profile_data.items() if hasattr(ComplianceProfile, k)}
                 )
             
             self.profile_created = True
             self.save(update_fields=['profile_created'])
             
-            # Clear stored registration data
-            if hasattr(self, '_registration_data'):
-                delattr(self, '_registration_data')
-                
-        except Exception as e:
-            # Log error but don't fail the approval process
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to create profile for user {self.email}: {str(e)}")
+            # Clean up temporary data
+            reg_data.delete()
+        
+        except TemporaryRegistrationData.DoesNotExist:
+            # Create minimal profile if no temp data
+            if self.role == self.Role.PATIENT:
+                PatientProfile.objects.create(user=self)
+            # Add other roles as needed
 
+            self.profile_created = True
+            self.save(update_fields=['profile_created'])
     
     def lock_account(self):
         """Lock account after too many failed login attempts."""
@@ -353,6 +331,43 @@ class PatientProfile(models.Model):
     identity_verification_method = models.CharField(max_length=50, blank=True)
     verification_deadline_notified = models.BooleanField(default=False)
     first_login_date = models.DateTimeField(null=True, blank=True)
+    
+    # Notification preferences for medication adherence
+    medication_reminder_enabled = models.BooleanField(default=True)
+    medication_reminder_methods = models.JSONField(default=list, help_text="['email', 'sms', 'push', 'smartwatch']")
+    medication_reminder_frequency = models.CharField(
+        max_length=20,
+        choices=[
+            ('immediate', 'Immediate'),
+            ('15min', '15 minutes before'),
+            ('30min', '30 minutes before'),
+            ('1hour', '1 hour before'),
+        ],
+        default='immediate'
+    )
+    
+    # Appointment reminders
+    appointment_reminder_enabled = models.BooleanField(default=True)
+    appointment_reminder_methods = models.JSONField(default=list)
+    appointment_reminder_advance_days = models.PositiveIntegerField(default=1)
+    
+    # Smart watch integration for reminders
+    smartwatch_device_id = models.CharField(max_length=255, blank=True, null=True)
+    smartwatch_integration_active = models.BooleanField(default=False)
+    
+        # Rare disease specific fields
+    rare_disease_diagnosed = models.BooleanField(default=False)
+    rare_disease_conditions = models.JSONField(default=list, help_text="List of rare conditions")
+    rare_disease_diagnosis_date = models.DateField(null=True, blank=True)
+    genetic_counseling_received = models.BooleanField(default=False)
+    
+    # Custom drug protocol participation
+    custom_drug_protocols = models.JSONField(default=list, help_text="Active custom drug protocols")
+    protocol_adherence_monitoring = models.BooleanField(default=False)
+    
+    # Family history tracking for genetics
+    family_history_data = models.JSONField(default=dict, help_text="Structured family medical history")
+    genetic_data_sharing_consent = models.BooleanField(default=False)
     
     def __str__(self):
         return f"Patient Profile: {self.user.username}"
@@ -515,81 +530,94 @@ class CaregiverProfile(models.Model):
 class ResearcherProfile(models.Model):
     """Clinical researcher profile."""
     
-    RESEARCH_AREA_CHOICES = [
+    RESEARCHER_TYPES = [
+        ('ACADEMIC', 'Academic Researcher'),
+        ('CLINICAL', 'Clinical Researcher'),
+        ('INDUSTRY', 'Industry Researcher'),
+        ('GOVERNMENT', 'Government Researcher'),
+        ('NON_PROFIT', 'Non-Profit Researcher'),
+    ]
+    
+    RESEARCH_AREAS = [
         ('RARE_DISEASES', 'Rare Diseases'),
-        ('CLINICAL_TRIALS', 'Clinical Trials'),
-        ('GENETICS', 'Genetics Research'),
-        ('PHARMACOLOGY', 'Pharmacology'),
-        ('EPIDEMIOLOGY', 'Epidemiology'),
-        ('BIOSTATISTICS', 'Biostatistics'),
-        ('HEALTH_OUTCOMES', 'Health Outcomes Research'),
+        ('ONCOLOGY', 'Oncology'),
+        ('NEUROLOGY', 'Neurology'),
+        ('GENETICS', 'Genetics'),
         ('DRUG_DEVELOPMENT', 'Drug Development'),
-        ('PATIENT_REGISTRIES', 'Patient Registries'),
-        ('BIOMARKER_RESEARCH', 'Biomarker Research'),
-        ('DIGITAL_HEALTH', 'Digital Health'),
-        ('OTHER', 'Other Research Area'),
+        ('CLINICAL_TRIALS', 'Clinical Trials'),
+        ('BIOMARKERS', 'Biomarkers'),
+        ('GENOMICS', 'Genomics'),
+        ('OTHER', 'Other'),
     ]
     
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='researcher_profile')
     
-    # Professional information
-    institution = models.CharField(max_length=255)
-    primary_research_area = models.CharField(max_length=50, choices=RESEARCH_AREA_CHOICES)
-    qualifications_background = models.TextField()  # Added based on requirements
+    # Institution information
+    institution_name = models.CharField(max_length=255)
+    institution_type = models.CharField(max_length=20, choices=RESEARCHER_TYPES)
+    department = models.CharField(max_length=255, blank=True)
+    research_id = models.CharField(max_length=100, unique=True)  # ORCID, institutional ID
     
-    # Research details
-    active_studies = models.TextField(blank=True)
-    irb_approval_confirmed = models.BooleanField(default=False)
+    # Research focus
+    primary_research_area = models.CharField(max_length=50, choices=RESEARCH_AREAS)
+    research_interests = models.TextField(help_text="Detailed research interests")
+    current_studies = models.JSONField(default=list, help_text="Active research studies")
+    
+    # Credentials
+    highest_degree = models.CharField(max_length=50)
+    years_experience = models.PositiveIntegerField(default=0)
+    publications_count = models.PositiveIntegerField(default=0)
     
     # Verification
-    is_verified = models.BooleanField(default=False)
-    verified_at = models.DateTimeField(null=True, blank=True)
-    verified_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='verified_researchers')
+    institutional_verification = models.BooleanField(default=False)
+    verification_documents = models.JSONField(default=list)
     
     def __str__(self):
-        return f"Researcher Profile: {self.user.username}"
+        return f"Researcher Profile: {self.user.username} - {self.institution_name}"
 
 
 class ComplianceProfile(models.Model):
     """Compliance officer profile."""
-    CERTIFICATION_TYPES = [
-        ('CHPC', 'Certified in Healthcare Privacy Compliance'),
-        ('CHPS', 'Certified in Healthcare Privacy and Security'),
-        ('HCCA', 'Healthcare Compliance Association Certified'),
-        ('OTHER', 'Other Certification'),
+    
+    COMPLIANCE_ROLES = [
+        ('HIPAA_OFFICER', 'HIPAA Compliance Officer'),
+        ('DPO', 'Data Protection Officer'),
+        ('QUALITY_ASSURANCE', 'Quality Assurance'),
+        ('REGULATORY_AFFAIRS', 'Regulatory Affairs'),
+        ('AUDIT_MANAGER', 'Audit Manager'),
+        ('CHIEF_COMPLIANCE', 'Chief Compliance Officer'),
     ]
     
-    SPECIALIZATION_AREAS = [
-        ('HIPAA', 'HIPAA Compliance'),
-        ('PRIVACY', 'Privacy Management'),
-        ('SECURITY', 'Security Compliance'),
-        ('AUDIT', 'Audit and Monitoring'),
-        ('GENERAL', 'General Healthcare Compliance'),
+    CERTIFICATION_TYPES = [
+        ('CHC', 'Certified in Healthcare Compliance'),
+        ('CIPP', 'Certified Information Privacy Professional'),
+        ('CISA', 'Certified Information Systems Auditor'),
+        ('CISSP', 'Certified Information Systems Security Professional'),
+        ('OTHER', 'Other'),
     ]
     
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='compliance_profile')
     
     # Professional information
-    organization = models.CharField(max_length=255)
-    job_title = models.CharField(max_length=255)
-    compliance_certification = models.CharField(max_length=20, choices=CERTIFICATION_TYPES)
-    primary_specialization = models.CharField(max_length=20, choices=SPECIALIZATION_AREAS)
-    regulatory_experience = models.TextField()  # Added based on requirements
+    organization_name = models.CharField(max_length=255)
+    compliance_role = models.CharField(max_length=30, choices=COMPLIANCE_ROLES)
+    license_number = models.CharField(max_length=100, blank=True)
     
-    # Certification details
-    certification_number = models.CharField(max_length=100, blank=True)
+    # Areas of responsibility
+    compliance_areas = models.JSONField(default=list, help_text="Areas of compliance oversight")
+    audit_permissions = models.JSONField(default=list, help_text="Systems they can audit")
+    
+    # Certifications
+    certifications = models.JSONField(default=list, help_text="Professional certifications")
     certification_expiry = models.DateField(null=True, blank=True)
     
     # Access permissions
-    can_view_audit_logs = models.BooleanField(default=True)
-    can_view_phi = models.BooleanField(default=True)
-    can_manage_emergencies = models.BooleanField(default=True)
-    
-    # Metadata
-    added_date = models.DateTimeField(auto_now_add=True)
+    can_view_all_phi = models.BooleanField(default=False)
+    can_generate_reports = models.BooleanField(default=True)
+    can_audit_access_logs = models.BooleanField(default=True)
     
     def __str__(self):
-        return f"Compliance Profile: {self.user.username}"
+        return f"Compliance Profile: {self.user.username} - {self.organization_name}"
 
 
 class CaregiverRequest(models.Model):
