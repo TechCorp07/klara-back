@@ -1112,3 +1112,24 @@ class AuditTrail(models.Model):
     def __str__(self):
         return f"{self.action_type} by {self.user} at {self.timestamp}"
 
+
+class WearableIntegration(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    device_type = models.CharField(max_length=50)
+    device_name = models.CharField(max_length=100)
+    is_active = models.BooleanField(default=True)
+    access_token = models.TextField()  # Encrypted
+    last_sync = models.DateTimeField()
+
+class FamilyMedicalHistory(models.Model):
+    patient = models.ForeignKey(User, on_delete=models.CASCADE)
+    relationship = models.CharField(max_length=50)
+    conditions = models.JSONField()
+    age_of_onset = models.IntegerField(null=True)
+
+class HealthAlert(models.Model):
+    patient = models.ForeignKey(User, on_delete=models.CASCADE)
+    alert_type = models.CharField(max_length=50)
+    severity = models.CharField(max_length=20)
+    message = models.TextField()
+    acknowledged = models.BooleanField(default=False)

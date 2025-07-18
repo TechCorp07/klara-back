@@ -71,10 +71,13 @@ urlpatterns = [
     # Patient profile specific endpoints
     path('patient-profiles/<int:pk>/verify-identity/', PatientProfileViewSet.as_view({'post': 'verify_identity'}), name='verify-patient-identity'),
     path('patient-profiles/<int:pk>/update-consent/', PatientProfileViewSet.as_view({'post': 'update_consent'}), name='update-patient-consent'),
-    #path('patient/vitals/', PatientViewSet.as_view({'get': 'vitals_list', 'post': 'vitals_create'}), name='patient-vitals'),
-    #path('patient/medications/', PatientViewSet.as_view({'get': 'medications_list'}), name='patient-medications'),
-    #path('patient/appointments/', PatientViewSet.as_view({'get': 'appointments_list'}), name='patient-appointments'),
-    
+    path('patient/wearable-devices/', PatientViewSet.as_view({'get': 'wearable_devices'})),
+    path('patient/wearable-devices/connect/', PatientViewSet.as_view({'post': 'connect_device'})),
+    path('patient/alerts/<int:alert_id>/acknowledge/', PatientViewSet.as_view({'post': 'acknowledge_alert'})),
+    path('patient/fhir/export/', PatientViewSet.as_view({'post': 'export_fhir'})),
+    path('patient/family-history/', PatientViewSet.as_view({'get': 'family_history', 'post': 'update_family_history'})),
+    path('patient/emergency/notify/', PatientViewSet.as_view({'post': 'emergency_notification'})),
+        
     #dashboard endpoints
     path('patient/dashboard/', PatientViewSet.as_view({'get': 'dashboard'}), name='patient-dashboard'),
     path('provider/dashboard/', ProviderProfileViewSet.as_view({'get': 'dashboard'}), name='provider-dashboard'),     
