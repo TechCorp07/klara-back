@@ -19,7 +19,7 @@ router.register(r'posts', CommunityPostViewSet)
 router.register(r'comments', CommunityCommentViewSet)
 router.register(r'events', CommunityEventViewSet)
 router.register(r'resources', CommunityResourceViewSet)
-router.register(r'notifications', CommunityNotificationViewSet)
+router.register(r'notifications', CommunityNotificationViewSet, basename='community-notification')
 router.register(r'accessibility', CommunityAccessibilitySettingViewSet, basename='accessibility-settings')
 
 urlpatterns = [

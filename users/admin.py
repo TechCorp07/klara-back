@@ -329,37 +329,26 @@ class CaregiverProfileAdmin(admin.ModelAdmin):
 class ResearcherProfileAdmin(admin.ModelAdmin):
     """Admin for researcher profiles."""
     list_display = (
-        'user', 'institution', 'primary_research_area',
-        'is_verified', 'irb_approval_confirmed'
+        'user', 'institution_name', 'primary_research_area',
+        'institutional_verification', 'years_experience'
     )
-    list_filter = ('is_verified', 'irb_approval_confirmed')
+    list_filter = ('institutional_verification', 'primary_research_area', 'institution_type')
     search_fields = (
-        'user__username', 'user__email', 'institution',
-        'primary_research_area'
+        'user__username', 'user__email', 'institution_name',
+        'research_id'
     )
     
     actions = ['verify_researchers', 'unverify_researchers']
     
     def verify_researchers(self, request, queryset):
         """Verify selected researchers."""
-        count = 0
-        for profile in queryset.filter(is_verified=False):
-            profile.is_verified = True
-            profile.verified_at = timezone.now()
-            profile.verified_by = request.user
-            profile.save()
-            count += 1
-        
+        count = queryset.update(institutional_verification=True)
         self.message_user(request, f"{count} researchers verified.")
     verify_researchers.short_description = "Verify selected researchers"
     
     def unverify_researchers(self, request, queryset):
         """Unverify selected researchers."""
-        count = queryset.filter(is_verified=True).update(
-            is_verified=False,
-            verified_at=None,
-            verified_by=None
-        )
+        count = queryset.update(institutional_verification=False)
         self.message_user(request, f"{count} researchers unverified.")
     unverify_researchers.short_description = "Unverify selected researchers"
 
@@ -368,52 +357,15 @@ class ResearcherProfileAdmin(admin.ModelAdmin):
 class ComplianceProfileAdmin(admin.ModelAdmin):
     """Admin for compliance officer profiles."""
     list_display = (
-        'user', 'organization', 'job_title',
-        'compliance_certification', 'primary_specialization',
-        'permissions_summary'
+        'user', 'organization_name', 'compliance_role', 
+        'can_view_all_phi', 'can_generate_reports'
     )
-    list_filter = (
-        'compliance_certification', 'primary_specialization',
-        'can_view_audit_logs', 'can_view_phi', 'can_manage_emergencies'
-    )
+    list_filter = ('compliance_role', 'can_view_all_phi', 'can_generate_reports', 'can_audit_access_logs')
     search_fields = (
-        'user__username', 'user__email', 'organization',
-        'job_title', 'certification_number'
+        'user__username', 'user__email', 'organization_name',
+        'license_number'
     )
-    
-    fieldsets = (
-        ('User', {'fields': ('user',)}),
-        ('Professional Information', {
-            'fields': (
-                'organization', 'job_title',
-                'compliance_certification', 'certification_number',
-                'certification_expiry', 'primary_specialization'
-            )
-        }),
-        ('Experience', {
-            'fields': ('regulatory_experience',)
-        }),
-        ('Permissions', {
-            'fields': (
-                'can_view_audit_logs', 'can_view_phi',
-                'can_manage_emergencies'
-            )
-        }),
-    )
-    
-    readonly_fields = ('added_date',)
-    
-    def permissions_summary(self, obj):
-        """Display permissions summary."""
-        perms = []
-        if obj.can_view_audit_logs:
-            perms.append('Audit')
-        if obj.can_view_phi:
-            perms.append('PHI')
-        if obj.can_manage_emergencies:
-            perms.append('Emergency')
-        return ', '.join(perms) or 'None'
-    permissions_summary.short_description = 'Permissions'
+    readonly_fields = ('user',)
 
 
 @admin.register(CaregiverRequest)

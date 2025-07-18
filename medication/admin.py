@@ -46,7 +46,7 @@ class MedicationAdmin(admin.ModelAdmin):
                   'route', 'prescription_required')
     search_fields = ('name', 'patient__username', 'patient__email', 'ndc_code', 'rxnorm_code')
     readonly_fields = ('created_at', 'updated_at', 'created_by', 'updated_by', 'fhir_resource_id')
-    date_hierarchy = 'start_date'
+    date_hierarchy = 'created_at'
     inlines = [MedicationIntakeInline, MedicationReminderInline, SideEffectInline]
     
     fieldsets = (

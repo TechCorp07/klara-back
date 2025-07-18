@@ -116,12 +116,12 @@ DATABASES = {
         'PASSWORD': env('DB_PASSWORD', default=''),
         'HOST': env('DB_HOST', default='localhost'),
         'PORT': env('DB_PORT', default='5432'),
-        'OPTIONS': {
+"""         'OPTIONS': {
             'sslmode': 'require',
             'sslcert': env('DB_CLIENT_CERT'),
             'sslkey': env('DB_CLIENT_KEY'),
             'sslrootcert': env('DB_CA_CERT'),
-        },
+        }, """
         'CONN_MAX_AGE': 60,
         'CONN_HEALTH_CHECKS': True,
     },
