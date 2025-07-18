@@ -2,7 +2,7 @@ import logging
 from django.db.models.signals import post_save, pre_save
 from django.utils import timezone
 from django.dispatch import receiver
-from users.models import ConsentLog
+from users.models import ConsentRecord
 from community.models import CommunityComment, CommunityMembership, CommunityPost, CommunityNotification
 
 # Import audit utilities
@@ -16,7 +16,7 @@ def update_phi_consent_log(sender, instance, created, **kwargs):
     """Create consent log when a user joins a group with PHI warnings enabled."""
     if created and instance.group.phi_warning_enabled and instance.status == 'approved':
         # Log the PHI consent for this group
-        ConsentLog.objects.create(
+        ConsentRecord.objects.create(
             user=instance.user,
             consent_type='DATA_SHARING',
             consented=True,

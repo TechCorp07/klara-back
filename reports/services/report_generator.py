@@ -888,11 +888,11 @@ class ReportGeneratorService:
         start_date = self._calculate_start_date(time_period)
         
         # Import necessary models
-        from users.models import ConsentLog
+        from users.models import ConsentRecord
         
         # Base queries
-        consent_logs = ConsentLog.objects.filter(
-            timestamp__gte=start_date
+        consent_logs = ConsentRecord.objects.filter(
+            signature_timestamp=start_date
         )
         
         # Apply filters

@@ -1254,11 +1254,11 @@ class AnalyticsService:
         start_date = self._calculate_start_date(time_period)
         
         # Import necessary models
-        from users.models import ConsentLog, User
+        from users.models import ConsentRecord, User
         
         # Base query
-        consent_logs = ConsentLog.objects.filter(
-            timestamp__gte=start_date
+        consent_logs = ConsentRecord.objects.filter(
+            signature_timestamp__gte=start_date
         )
         
         # Apply consent type filter if specified

@@ -11,7 +11,6 @@ class NotificationException(Exception):
     """Exception for notification errors."""
     pass
 
-
 def create_notification(user, title, message, notification_type, related_object_id=None, related_object_type=None):
     """
     Create a notification for a user.
@@ -333,3 +332,37 @@ def _send_twilio_sms(self, phone_number, message):
         logger.error(f"Twilio SMS failed: {str(e)}")
         return False
 
+
+class NotificationService:
+    """
+    Service class for managing notifications.
+    Provides a clean interface for notification operations.
+    """
+    
+    def create_notification(self, user, title, message, notification_type, 
+                          related_object_id=None, related_object_type=None):
+        """Create a notification using the function."""
+        return create_notification(
+            user=user,
+            title=title,
+            message=message,
+            notification_type=notification_type,
+            related_object_id=related_object_id,
+            related_object_type=related_object_type
+        )
+    
+    def send_bulk_notifications(self, users, title, message, notification_type, 
+                              related_object_id=None, related_object_type=None):
+        """Send bulk notifications using the function."""
+        return send_bulk_notifications(
+            users=users,
+            title=title,
+            message=message,
+            notification_type=notification_type,
+            related_object_id=related_object_id,
+            related_object_type=related_object_type
+        )
+    
+    def mark_notification_as_read(self, notification_id, user):
+        """Mark notification as read using the function."""
+        return mark_notification_as_read(notification_id, user)

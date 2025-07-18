@@ -1,10 +1,9 @@
 # telemedicine/services/notification_service.py
+import logging
 from django.utils import timezone
 from django.conf import settings
 from datetime import timedelta
 from typing import Dict, List, Any, Optional
-import logging
-
 from ..models import Appointment, Consultation
 from communication.services import NotificationService
 

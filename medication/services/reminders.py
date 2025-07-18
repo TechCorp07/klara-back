@@ -1,10 +1,9 @@
 # medication/services/reminders.py
-import json
+import logging
 from django.utils import timezone
 from django.conf import settings
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
-import logging
 
 from ..models import Medication, MedicationReminder
 from communication.services import NotificationService
