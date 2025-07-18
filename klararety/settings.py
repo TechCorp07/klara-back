@@ -344,7 +344,7 @@ EMAIL_SETTINGS = {
 }
 
 # Security Module Configuration
-SECURITY_MONITORING_ENABLED = True
+SECURITY_MONITORING_ENABLED = False  # Set to True for production
 SECURITY_RATE_LIMITING_ENABLED = True
 SECURITY_THREAT_DETECTION_ENABLED = True
 SECURITY_BLOCK_SUSPICIOUS_PATTERNS = False  # Set to True for production
@@ -352,9 +352,9 @@ SECURITY_AUTO_START_MONITORING = True
 
 # Security Rate Limits
 SECURITY_RATE_LIMITS = {
-    'requests_per_minute': 60,
-    'failed_logins_per_hour': 10,
-    'api_calls_per_minute': 100
+    'requests_per_minute': 200, #60 for production
+    'failed_logins_per_hour': 50, #10 for production
+    'api_calls_per_minute': 200 #100 for production
 }
 
 # Security Alert Recipients

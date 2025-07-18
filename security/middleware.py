@@ -32,9 +32,9 @@ class SecurityMonitoringMiddleware:
         
         # Rate limiting thresholds
         self.rate_limits = getattr(settings, 'SECURITY_RATE_LIMITS', {
-            'requests_per_minute': 60,
-            'failed_logins_per_hour': 10,
-            'api_calls_per_minute': 100
+            'requests_per_minute': 200, #60 for production
+            'failed_logins_per_hour': 50, #10 for production
+            'api_calls_per_minute': 200 #100 for production
         })
         
         # Suspicious patterns
