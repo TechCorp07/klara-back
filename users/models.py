@@ -162,8 +162,8 @@ class User(AbstractUser):
     
         try:
             # Get stored registration data
-            reg_data = TemporaryRegistrationData.objects.get(email=self.email)
-            profile_data = reg_data.profile_data
+            reg_data = TemporaryRegistrationData.objects.get(user=self)
+            profile_data = reg_data.data
             
             if self.role == self.Role.PATIENT:
                 PatientProfile.objects.create(
