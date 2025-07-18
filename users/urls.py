@@ -68,18 +68,60 @@ urlpatterns = [
     path('users/create-admin/', UserViewSet.as_view({'post': 'create_admin'}), name='create-admin'),
     path('users/<int:pk>/reactivate/', UserViewSet.as_view({'post': 'reactivate_user'}), name='reactivate-user'),
 
-    # Patient profile specific endpoints
+    # Patient specific endpoints
+    path('patient/dashboard/', PatientViewSet.as_view({'get': 'dashboard'}), name='patient-dashboard'),
+    path('patient/profile/', PatientProfileViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update'}), name='patient-profile'),
     path('patient-profiles/<int:pk>/verify-identity/', PatientProfileViewSet.as_view({'post': 'verify_identity'}), name='verify-patient-identity'),
     path('patient-profiles/<int:pk>/update-consent/', PatientProfileViewSet.as_view({'post': 'update_consent'}), name='update-patient-consent'),
-    path('patient/wearable-devices/', PatientViewSet.as_view({'get': 'wearable_devices'})),
-    path('patient/wearable-devices/connect/', PatientViewSet.as_view({'post': 'connect_device'})),
-    path('patient/alerts/<int:alert_id>/acknowledge/', PatientViewSet.as_view({'post': 'acknowledge_alert'})),
-    path('patient/fhir/export/', PatientViewSet.as_view({'post': 'export_fhir'})),
-    path('patient/family-history/', PatientViewSet.as_view({'get': 'family_history', 'post': 'update_family_history'})),
-    path('patient/emergency/notify/', PatientViewSet.as_view({'post': 'emergency_notification'})),
-        
+    
+    # Medication endpoints
+    path('patient/medications/', PatientViewSet.as_view({'get': 'medications_list'}), name='patient-medications'),
+    path('patient/medications/<int:medication_id>/log/', PatientViewSet.as_view({'post': 'log_medication'}), name='patient-log-medication'),
+    path('patient/medications/analytics/', PatientViewSet.as_view({'get': 'medication_analytics'}), name='patient-medication-analytics'),
+    
+    # Vital signs endpoints
+    path('patient/vitals/', PatientViewSet.as_view({'get': 'vitals_list', 'post': 'record_vitals'}), name='patient-vitals'),
+    path('patient/vitals/latest/', PatientViewSet.as_view({'get': 'latest_vitals'}), name='patient-latest-vitals'),
+    
+    # Wearable device endpoints
+    path('patient/wearable-devices/', PatientViewSet.as_view({'get': 'wearable_devices'}), name='patient-wearable-devices'),
+    path('patient/wearable-devices/connect/', PatientViewSet.as_view({'post': 'connect_wearable_device'}), name='patient-connect-device'),
+    path('patient/wearable-devices/<int:device_id>/disconnect/', PatientViewSet.as_view({'post': 'disconnect_wearable_device'}), name='patient-disconnect-device'),
+    
+    # Appointment endpoints
+    path('patient/appointments/', PatientViewSet.as_view({'get': 'appointments_list'}), name='patient-appointments'),
+    path('patient/appointments/request/', PatientViewSet.as_view({'post': 'request_appointment'}), name='patient-request-appointment'),
+    path('patient/appointments/<int:appointment_id>/cancel/', PatientViewSet.as_view({'post': 'cancel_appointment'}), name='patient-cancel-appointment'),
+    
+    # Health alerts endpoints
+    path('patient/alerts/', PatientViewSet.as_view({'get': 'alerts_list'}), name='patient-alerts'),
+    path('patient/alerts/<int:alert_id>/acknowledge/', PatientViewSet.as_view({'post': 'acknowledge_alert'}), name='patient-acknowledge-alert'),
+    
+    # Research participation endpoints
+    path('patient/research/available-studies/', PatientViewSet.as_view({'get': 'available_research_studies'}), name='patient-research-studies'),
+    path('patient/research/studies/<int:study_id>/interest/', PatientViewSet.as_view({'post': 'express_research_interest'}), name='patient-research-interest'),
+    
+    # FHIR endpoints
+    path('patient/fhir/export/', PatientViewSet.as_view({'post': 'export_fhir_data'}), name='patient-fhir-export'),
+    path('patient/fhir/import-request/', PatientViewSet.as_view({'post': 'request_fhir_import'}), name='patient-fhir-import'),
+    
+    # Family history endpoints
+    path('patient/family-history/', PatientViewSet.as_view({'get': 'family_history', 'post': 'update_family_history'}), name='patient-family-history'),
+    
+    # Medication reminders endpoints
+    path('patient/profile/medication-reminders/', PatientProfileViewSet.as_view({'patch': 'update_medication_reminders'}), name='patient-medication-reminders'),
+    
+    # Telemedicine endpoints
+    path('patient/telemedicine/request/', PatientViewSet.as_view({'post': 'request_telemedicine_session'}), name='patient-telemedicine-request'),
+    
+    # Chat groups endpoints
+    path('patient/chat-groups/', PatientViewSet.as_view({'get': 'chat_groups'}), name='patient-chat-groups'),
+    path('patient/chat-groups/<int:group_id>/join/', PatientViewSet.as_view({'post': 'join_chat_group'}), name='patient-join-chat-group'),
+    
+    # Emergency notification endpoints
+    path('patient/emergency/notify/', PatientViewSet.as_view({'post': 'emergency_notification'}), name='patient-emergency-notification'),
+    
     #dashboard endpoints
-    path('patient/dashboard/', PatientViewSet.as_view({'get': 'dashboard'}), name='patient-dashboard'),
     path('provider/dashboard/', ProviderProfileViewSet.as_view({'get': 'dashboard'}), name='provider-dashboard'),     
     path('pharmco/dashboard/', PharmcoProfileViewSet.as_view({'get': 'dashboard'}), name='pharmco-dashboard'),       
     #path('researcher/dashboard/', ResearcherViewSet.as_view({'get': 'dashboard'}), name='researcher-dashboard'),
