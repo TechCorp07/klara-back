@@ -51,7 +51,7 @@ def log_user_login_failed(sender, credentials, request, **kwargs):
     # Create security audit log for failed login
     SecurityAuditLog.objects.create(
         user=None,  # No user since login failed
-        event_type=SecurityAuditLog.EventType.LOGIN_FAILED,
+        event_type=SecurityAuditLog.EventType.FAILED_LOGIN,
         description=f"Failed login attempt for username: {username}",
         severity=SecurityAuditLog.Severity.MEDIUM,
         ip_address=get_client_ip(request),
@@ -63,7 +63,7 @@ def log_user_login_failed(sender, credentials, request, **kwargs):
     if getattr(settings, 'AUDIT_TRACK_FAILED_LOGINS', True):
         ip_address = get_client_ip(request)
         recent_failures = SecurityAuditLog.objects.filter(
-            event_type=SecurityAuditLog.EventType.LOGIN_FAILED,
+            event_type=SecurityAuditLog.EventType.FAILED_LOGIN,
             ip_address=ip_address,
             timestamp__gte=get_time_threshold()
         ).count()

@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     
     # Third-party apps
+    #'django_csp',  # Content Security Policy
     'rest_framework',
     'corsheaders',
     'channels',
@@ -62,12 +63,10 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'security.middleware.SecurityResponseMiddleware',
-    'users.jwt_middleware.SecurityHeadersMiddleware',  # Add security headers
+    'security.middleware.SecurityResponseMiddleware',  
+    'users.jwt_middleware.SecurityHeadersMiddleware',  # security headers
     'whitenoise.middleware.WhiteNoiseMiddleware',
-    'security.middleware.SecurityMiddleware',  # Custom security middleware
-    'security.middleware.ContentSecurityPolicyMiddleware',  # CSP
-    'security.middleware.XSSProtectionMiddleware',  # XSS protection
+    'security.middleware.SecurityMonitoringMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -80,7 +79,8 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_otp.middleware.OTPMiddleware',  # 2FA middleware
     'audit.middleware.AuditMiddleware',  # Audit logging
-    'security.middleware.SecurityMonitoringMiddleware',
+    'community.middleware.AccessibilityMiddleware',  # Community accessibility
+    'community.middleware.PHIProtectionMiddleware',  # PHI protection
 ]
 
 ROOT_URLCONF = 'klararety.urls'
