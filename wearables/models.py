@@ -1,7 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
-from django_cryptography.fields import encrypt
+from healthcare.fields import EncryptedCharField, EncryptedTextField
 
 class WearableIntegration(models.Model):
     """Base model for wearable device integrations."""
@@ -29,12 +29,12 @@ class WearableIntegration(models.Model):
     status = models.CharField(max_length=20, choices=ConnectionStatus.choices, default=ConnectionStatus.DISCONNECTED)
     
     # OAuth tokens (encrypted for security)
-    access_token = encrypt(models.TextField(blank=True, null=True))
-    refresh_token = encrypt(models.TextField(blank=True, null=True))
+    access_token = EncryptedTextField(blank=True, null=True)
+    refresh_token = EncryptedTextField(blank=True, null=True)
     token_expiry = models.DateTimeField(null=True, blank=True)
     
     # Platform-specific user ID
-    platform_user_id = encrypt(models.CharField(max_length=255, blank=True, null=True))
+    platform_user_id = EncryptedCharField(max_length=255, blank=True, null=True)
     
     # Data collection consent
     consent_granted = models.BooleanField(default=False)
@@ -154,11 +154,11 @@ class WearableMeasurement(models.Model):
     measured_at = models.DateTimeField()
     
     # Source device information
-    device_id = encrypt(models.CharField(max_length=255, blank=True))
-    device_model = encrypt(models.CharField(max_length=255, blank=True))
+    device_id = EncryptedCharField(max_length=255, blank=True)
+    device_model = EncryptedCharField(max_length=255, blank=True)
     
     # Platform-specific measurement ID for deduplication
-    external_measurement_id = encrypt(models.CharField(max_length=255, blank=True))
+    external_measurement_id = EncryptedCharField(max_length=255, blank=True)
     
     # Additional data that varies by measurement type (e.g., sleep stages, BP systolic/diastolic)
     additional_data = models.JSONField(default=dict, blank=True)

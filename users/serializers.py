@@ -141,7 +141,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     # Researcher fields
     institution = serializers.CharField(required=False)
     primary_research_area = serializers.ChoiceField(
-        choices=ResearcherProfile.RESEARCH_AREA_CHOICES,
+        choices=ResearcherProfile.RESEARCH_AREAS,
         required=False
     )
     qualifications_background = serializers.CharField(required=False)
@@ -155,7 +155,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         required=False
     )
     primary_specialization = serializers.ChoiceField(
-        choices=ComplianceProfile.SPECIALIZATION_AREAS,
+        choices=ComplianceProfile.COMPLIANCE_ROLES,
         required=False
     )
     regulatory_experience = serializers.CharField(required=False)

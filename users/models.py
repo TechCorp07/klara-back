@@ -5,7 +5,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
-from django_cryptography.fields import encrypt
+from healthcare.fields import EncryptedCharField, EncryptedTextField, EncryptedDateField
 from cryptography.fernet import Fernet
 from django.conf import settings
 from datetime import timedelta
@@ -304,18 +304,18 @@ class PatientProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='patient_profile')
     
     # Personal medical information
-    medical_id = encrypt(models.CharField(max_length=50, blank=True))
-    blood_type = encrypt(models.CharField(max_length=10, blank=True))
-    allergies = encrypt(models.TextField(blank=True))
+    medical_id = EncryptedCharField(max_length=50, blank=True)
+    blood_type = EncryptedCharField(max_length=10, blank=True)
+    allergies = EncryptedTextField(blank=True)
     
     # Emergency contact
-    emergency_contact_name = encrypt(models.CharField(max_length=255, blank=True))
-    emergency_contact_phone = encrypt(models.CharField(max_length=20, blank=True))
+    emergency_contact_name = EncryptedCharField(max_length=255, blank=True)
+    emergency_contact_phone = EncryptedCharField(max_length=20, blank=True)
     emergency_contact_relationship = models.CharField(max_length=50, blank=True)
     
     # Primary condition
-    primary_condition = encrypt(models.CharField(max_length=255, blank=True))
-    condition_diagnosis_date = encrypt(models.DateField(null=True, blank=True))
+    primary_condition = EncryptedCharField(max_length=255, blank=True)
+    condition_diagnosis_date = EncryptedDateField(null=True, blank=True)
     
     # Consent preferences
     medication_adherence_monitoring_consent = models.BooleanField(default=False)
@@ -690,7 +690,7 @@ class EmergencyAccess(models.Model):
     
     # Request information
     requester = models.ForeignKey(User, on_delete=models.CASCADE, related_name='emergency_accesses')
-    patient_identifier = encrypt(models.CharField(max_length=255))
+    patient_identifier = EncryptedCharField(max_length=255)
     reason = models.CharField(max_length=20, choices=REASON_CHOICES)
     detailed_reason = models.TextField()
     

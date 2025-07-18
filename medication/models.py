@@ -2,7 +2,7 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-from django_cryptography.fields import encrypt
+from healthcare.fields import EncryptedCharField, EncryptedJSONField, EncryptedTextField, EncryptedDateField
 from healthcare.models import MedicalRecord, Condition
 
 class Medication(models.Model):
@@ -41,23 +41,23 @@ class Medication(models.Model):
         OTHER = 'other', _('Other')
     
     # Basic information
-    name = encrypt(models.CharField(max_length=255))
-    generic_name = encrypt(models.CharField(max_length=255, blank=True, null=True))
-    ndc_code = encrypt(models.CharField(max_length=50, blank=True, null=True, help_text="National Drug Code"))
-    rxnorm_code = encrypt(models.CharField(max_length=50, blank=True, null=True, help_text="RxNorm Code"))
+    name = EncryptedCharField(max_length=255)
+    generic_name = EncryptedCharField(max_length=255, blank=True, null=True)
+    ndc_code = EncryptedCharField(max_length=50, blank=True, null=True, help_text="National Drug Code")
+    rxnorm_code = EncryptedCharField(max_length=50, blank=True, null=True, help_text="RxNorm Code")
     medication_type = models.CharField(max_length=20, choices=MedicationType.choices, default=MedicationType.PILL)
     route = models.CharField(max_length=20, choices=RouteOfAdministration.choices, default=RouteOfAdministration.ORAL)
     
     # Dosage information
-    dosage = encrypt(models.CharField(max_length=100))
+    dosage = EncryptedCharField(max_length=100)
     dosage_unit = models.CharField(max_length=50, blank=True, null=True)
-    strength = encrypt(models.CharField(max_length=100, blank=True, null=True))
+    strength = EncryptedCharField(max_length=100, blank=True, null=True)
     
     # Frequency and timing
-    frequency = encrypt(models.CharField(max_length=100))
+    frequency = EncryptedCharField(max_length=100)
     frequency_unit = models.CharField(max_length=20, choices=FrequencyUnit.choices, default=FrequencyUnit.DAILY)
     times_per_frequency = models.PositiveSmallIntegerField(default=1)
-    specific_times = encrypt(models.JSONField(blank=True, null=True, help_text="JSON array of specific times for medication"))
+    specific_times = EncryptedJSONField(blank=True, null=True, help_text="JSON array of specific times for medication")
     
     # Enhanced rare disease fields
     clinical_trial_id = models.CharField(max_length=100, blank=True, null=True, help_text="Associated clinical trial ID")
@@ -91,12 +91,12 @@ class Medication(models.Model):
     baseline_measurements = models.JSONField(default=dict, help_text="Baseline measurements before starting")
     
     # Duration
-    start_date = encrypt(models.DateField())
-    end_date = encrypt(models.DateField(blank=True, null=True))
+    start_date = EncryptedDateField()
+    end_date = EncryptedDateField(blank=True, null=True)
     ongoing = models.BooleanField(default=False)
     
     # Instructions
-    instructions = encrypt(models.TextField(blank=True, null=True))
+    instructions = EncryptedTextField(blank=True, null=True)
     
     # Status
     active = models.BooleanField(default=True)
@@ -144,12 +144,12 @@ class Medication(models.Model):
     last_refill_date = models.DateField(blank=True, null=True)
     
     # Pharmacy information
-    pharmacy_name = encrypt(models.CharField(max_length=255, blank=True, null=True))
-    pharmacy_phone = encrypt(models.CharField(max_length=20, blank=True, null=True))
+    pharmacy_name = EncryptedCharField(max_length=255, blank=True, null=True)
+    pharmacy_phone = EncryptedCharField(max_length=20, blank=True, null=True)
     
     # Side effects and interactions
-    potential_side_effects = encrypt(models.TextField(blank=True, null=True))
-    known_interactions = encrypt(models.TextField(blank=True, null=True))
+    potential_side_effects = EncryptedTextField(blank=True, null=True)
+    known_interactions =EncryptedTextField(blank=True, null=True)
     
     # Adherence tracking
     adherence_schedule = models.JSONField(default=dict, blank=True, help_text="Scheduled times for adherence tracking")
@@ -214,7 +214,7 @@ class Prescription(models.Model):
         COMPLETED = 'completed', _('Completed')
     
     # Basic prescription information
-    prescription_number = encrypt(models.CharField(max_length=100, unique=True))
+    prescription_number = EncryptedCharField(max_length=100, unique=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     
     # Dates
@@ -232,24 +232,24 @@ class Prescription(models.Model):
     )
     
     # Medication details
-    medication_name = encrypt(models.CharField(max_length=255))
-    dosage = encrypt(models.CharField(max_length=100))
-    frequency = encrypt(models.CharField(max_length=100))
-    quantity = encrypt(models.CharField(max_length=50))
+    medication_name = EncryptedCharField(max_length=255)
+    dosage = EncryptedCharField(max_length=100)
+    frequency = EncryptedCharField(max_length=100)
+    quantity = EncryptedCharField(max_length=50)
     refills = models.PositiveSmallIntegerField(default=0)
     
     # Pharmacy details
-    pharmacy_name = encrypt(models.CharField(max_length=255, blank=True, null=True))
-    pharmacy_phone = encrypt(models.CharField(max_length=20, blank=True, null=True))
-    pharmacy_address = encrypt(models.TextField(blank=True, null=True))
+    pharmacy_name = EncryptedCharField(max_length=255, blank=True, null=True)
+    pharmacy_phone = EncryptedCharField(max_length=20, blank=True, null=True)
+    pharmacy_address = EncryptedTextField(blank=True, null=True)
     
     # E-prescription details
     is_electronic = models.BooleanField(default=False)
-    electronic_routing_id = encrypt(models.CharField(max_length=100, blank=True, null=True))
+    electronic_routing_id = EncryptedCharField(max_length=100, blank=True, null=True)
     
     # Instructions and notes
-    instructions = encrypt(models.TextField(blank=True, null=True))
-    notes = encrypt(models.TextField(blank=True, null=True))
+    instructions = EncryptedTextField(blank=True, null=True)
+    notes = EncryptedTextField(blank=True, null=True)
     
     # FHIR Integration
     fhir_resource_id = models.CharField(max_length=100, blank=True, null=True)
@@ -308,13 +308,13 @@ class MedicationIntake(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.MISSED)
     
     # Dose information
-    dosage_taken = encrypt(models.CharField(max_length=100, blank=True, null=True))
+    dosage_taken = EncryptedCharField(max_length=100, blank=True, null=True)
     
     # Skip reason
-    skip_reason = encrypt(models.TextField(blank=True, null=True))
+    skip_reason = EncryptedTextField(blank=True, null=True)
     
     # Notes
-    notes = encrypt(models.TextField(blank=True, null=True))
+    notes = EncryptedTextField(blank=True, null=True)
     
     # Record information
     recorded_by = models.ForeignKey(
@@ -375,7 +375,7 @@ class MedicationReminder(models.Model):
     
     # Reminder details
     reminder_type = models.CharField(max_length=20, choices=ReminderType.choices, default=ReminderType.DOSE)
-    message = encrypt(models.TextField())
+    message = EncryptedTextField()
     frequency = models.CharField(max_length=20, choices=Frequency.choices, default=Frequency.DAILY)
     
     # Timing
@@ -474,7 +474,7 @@ class AdherenceRecord(models.Model):
     average_delay = models.FloatField(default=0.0, help_text="Average minutes late for doses")
     
     # Notes and explanations
-    notes = encrypt(models.TextField(blank=True, null=True))
+    notes = EncryptedTextField(blank=True, null=True)
     
     # Meta information
     created_at = models.DateTimeField(auto_now_add=True)
@@ -541,7 +541,7 @@ class SideEffect(models.Model):
     patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reported_side_effects')
     
     # Side effect details
-    description = encrypt(models.TextField())
+    description = EncryptedTextField()
     severity = models.CharField(max_length=20, choices=Severity.choices, default=Severity.MILD)
     
     # Timing
@@ -556,7 +556,7 @@ class SideEffect(models.Model):
     medication_stopped = models.BooleanField(default=False)
     
     # Additional notes
-    notes = encrypt(models.TextField(blank=True, null=True))
+    notes = EncryptedTextField(blank=True, null=True)
     
     # Meta information
     created_at = models.DateTimeField(auto_now_add=True)
@@ -603,13 +603,13 @@ class DrugInteraction(models.Model):
     patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='drug_interactions')
     
     # Interaction details
-    description = encrypt(models.TextField())
+    description = EncryptedTextField()
     severity = models.CharField(max_length=20, choices=Severity.choices, default=Severity.MODERATE)
     
     # Action taken
     detected_date = models.DateField(auto_now_add=True)
     resolved_date = models.DateField(blank=True, null=True)
-    resolution_action = encrypt(models.TextField(blank=True, null=True))
+    resolution_action = EncryptedTextField(blank=True, null=True)
     
     # Notification status
     patient_notified = models.BooleanField(default=False)

@@ -1,7 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
-from django_cryptography.fields import encrypt
+from healthcare.fields import EncryptedCharField, EncryptedJSONField, EncryptedTextField, EncryptedURLField
 from healthcare.models import MedicalRecord, Condition, Treatment
 
 class Appointment(models.Model):
@@ -75,9 +75,9 @@ class Appointment(models.Model):
     )
     
     # Enhanced fields
-    reason = encrypt(models.TextField(help_text="Reason for the appointment - PHI data"))
-    notes = encrypt(models.TextField(blank=True, help_text="Provider notes - PHI data"))
-    encrypted_metadata = encrypt(models.JSONField(default=dict, blank=True, help_text="Additional encrypted PHI data"))
+    reason = EncryptedTextField(help_text="Reason for the appointment - PHI data")
+    notes = EncryptedTextField(blank=True, help_text="Provider notes - PHI data")
+    encrypted_metadata = EncryptedJSONField(default=dict, blank=True, help_text="Additional encrypted PHI data")
     
     # Reminders
     reminders_enabled = models.BooleanField(default=True)
@@ -196,12 +196,12 @@ class Consultation(models.Model):
     provider_join_time = models.DateTimeField(null=True, blank=True)
     
     # Clinical data (encrypted)
-    notes = encrypt(models.TextField(blank=True))
-    diagnosis = encrypt(models.TextField(blank=True))
-    treatment_plan = encrypt(models.TextField(blank=True))
+    notes = EncryptedTextField(blank=True)
+    diagnosis = EncryptedTextField(blank=True)
+    treatment_plan = EncryptedTextField(blank=True)
     follow_up_required = models.BooleanField(default=False)
     follow_up_date = models.DateField(null=True, blank=True)
-    vital_signs = encrypt(models.JSONField(default=dict, blank=True))
+    vital_signs = EncryptedJSONField(default=dict, blank=True)
     
     # Related treatments
     treatments = models.ManyToManyField(
@@ -211,15 +211,15 @@ class Consultation(models.Model):
     )
     
     # Meeting platform details
-    meeting_id = encrypt(models.CharField(max_length=255, blank=True))
-    join_url = encrypt(models.URLField(blank=True))
-    password = encrypt(models.CharField(max_length=100, blank=True))
-    host_key = encrypt(models.CharField(max_length=100, blank=True))
-    platform_data = encrypt(models.JSONField(default=dict, blank=True))
+    meeting_id = EncryptedCharField(max_length=255, blank=True)
+    join_url = EncryptedURLField(blank=True)
+    password = EncryptedCharField(max_length=100, blank=True)
+    host_key = EncryptedCharField(max_length=100, blank=True)
+    platform_data = EncryptedJSONField(default=dict, blank=True)
     
     # Recording
     recording_enabled = models.BooleanField(default=False)
-    recording_url = encrypt(models.URLField(blank=True))
+    recording_url = EncryptedURLField(blank=True)
     recording_consent = models.BooleanField(default=False)
     
     # Technical details
@@ -308,13 +308,13 @@ class Prescription(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     
     # Medication details (encrypted)
-    medication_name = encrypt(models.CharField(max_length=255))
-    dosage = encrypt(models.CharField(max_length=100))
-    frequency = encrypt(models.CharField(max_length=100))
-    duration = encrypt(models.CharField(max_length=100))
-    quantity = encrypt(models.CharField(max_length=100))
+    medication_name = EncryptedCharField(max_length=255)
+    dosage = EncryptedCharField(max_length=100)
+    frequency = EncryptedCharField(max_length=100)
+    duration = EncryptedCharField(max_length=100)
+    quantity = EncryptedCharField(max_length=100)
     refills = models.IntegerField(default=0)
-    instructions = encrypt(models.TextField())
+    instructions = EncryptedTextField()
     
     # Dates
     prescribed_date = models.DateField(auto_now_add=True)
@@ -323,7 +323,7 @@ class Prescription(models.Model):
     expiration_date = models.DateField(null=True, blank=True)
     
     # External pharmacy info
-    pharmacy_notes = encrypt(models.TextField(blank=True))
+    pharmacy_notes = EncryptedTextField(blank=True)
     pharmacy_id = models.CharField(max_length=100, blank=True)
     external_rx_id = models.CharField(max_length=100, blank=True, unique=True, null=True)
     
@@ -507,23 +507,23 @@ class ConsultationNote(models.Model):
     )
     
     # SOAP Note fields
-    subjective = encrypt(models.TextField(blank=True, help_text="Patient's subjective experience"))
-    objective = encrypt(models.TextField(blank=True, help_text="Objective observations"))
-    assessment = encrypt(models.TextField(blank=True, help_text="Provider's assessment"))
-    plan = encrypt(models.TextField(blank=True, help_text="Treatment plan"))
+    subjective = EncryptedTextField(blank=True, help_text="Patient's subjective experience")
+    objective = EncryptedTextField(blank=True, help_text="Objective observations")
+    assessment = EncryptedTextField(blank=True, help_text="Provider's assessment")
+    plan = EncryptedTextField(blank=True, help_text="Treatment plan")
     
     # Additional structured fields
-    chief_complaint = encrypt(models.TextField(blank=True))
-    history_present_illness = encrypt(models.TextField(blank=True))
-    past_medical_history = encrypt(models.TextField(blank=True))
-    medications = encrypt(models.TextField(blank=True))
-    allergies = encrypt(models.TextField(blank=True))
-    review_of_systems = encrypt(models.TextField(blank=True))
-    physical_examination = encrypt(models.TextField(blank=True))
-    diagnostic_results = encrypt(models.TextField(blank=True))
+    chief_complaint = EncryptedTextField(blank=True)
+    history_present_illness = EncryptedTextField(blank=True)
+    past_medical_history = EncryptedTextField(blank=True)
+    medications = EncryptedTextField(blank=True)
+    allergies = EncryptedTextField(blank=True)
+    review_of_systems = EncryptedTextField(blank=True)
+    physical_examination = EncryptedTextField(blank=True)
+    diagnostic_results = EncryptedTextField(blank=True)
     
     # Vitals
-    vital_signs = encrypt(models.JSONField(default=dict, blank=True))
+    vital_signs = EncryptedJSONField(default=dict, blank=True)
     
     # Note completeness
     is_complete = models.BooleanField(default=False)

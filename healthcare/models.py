@@ -1,24 +1,24 @@
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
-from django_cryptography.fields import encrypt
+from healthcare.fields import EncryptedCharField, EncryptedIntegerField, EncryptedTextField, EncryptedDateField, EncryptedDecimalField
 
 class MedicalRecord(models.Model):
     """Model for patient medical records with enhanced security and HIPAA compliance."""
     patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='medical_records')
-    medical_record_number = encrypt(models.CharField(max_length=50, unique=True))
-    date_of_birth = encrypt(models.DateField())
-    gender = encrypt(models.CharField(max_length=20))
-    blood_type = encrypt(models.CharField(max_length=10, blank=True, null=True))
-    height = encrypt(models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True))  # in cm
-    weight = encrypt(models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True))  # in kg
+    medical_record_number = EncryptedCharField(max_length=50, unique=True)
+    date_of_birth = EncryptedDateField()
+    gender = EncryptedCharField(max_length=20)
+    blood_type = EncryptedCharField(max_length=10, blank=True, null=True)
+    height = EncryptedDecimalField(max_digits=5, decimal_places=2, blank=True, null=True)  # in cm
+    weight = EncryptedDecimalField(max_digits=5, decimal_places=2, blank=True, null=True)  # in kg
     
     # Enhanced patient data
-    ethnicity = encrypt(models.CharField(max_length=50, blank=True, null=True))
+    ethnicity = EncryptedCharField(max_length=50, blank=True, null=True)
     preferred_language = models.CharField(max_length=50, blank=True, null=True)
-    emergency_contact_name = encrypt(models.CharField(max_length=100, blank=True, null=True))
-    emergency_contact_phone = encrypt(models.CharField(max_length=20, blank=True, null=True))
-    emergency_contact_relationship = models.CharField(max_length=50, blank=True, null=True)
+    emergency_contact_name = EncryptedCharField(max_length=100, blank=True, null=True)
+    emergency_contact_phone = EncryptedCharField(max_length=20, blank=True, null=True)
+    emergency_contact_relationship = EncryptedCharField(max_length=50, blank=True, null=True)
     
     # Provider relationships
     primary_physician = models.ForeignKey(
@@ -107,14 +107,14 @@ class RareConditionRegistry(models.Model):
 class Medication(models.Model):
     """Model for patient medications with enhanced tracking for adherence."""
     medical_record = models.ForeignKey(MedicalRecord, on_delete=models.CASCADE, related_name='healthcare_medications')
-    name = encrypt(models.CharField(max_length=255))
-    dosage = encrypt(models.CharField(max_length=100))
-    frequency = encrypt(models.CharField(max_length=100))
-    instructions = encrypt(models.TextField(blank=True))
-    start_date = encrypt(models.DateField())
-    end_date = encrypt(models.DateField(blank=True, null=True))
+    name = EncryptedCharField(max_length=255)
+    dosage = EncryptedCharField(max_length=100)
+    frequency = EncryptedCharField(max_length=100)
+    instructions = EncryptedTextField(blank=True)
+    start_date = EncryptedDateField()
+    end_date = EncryptedDateField(blank=True, null=True)
     active = models.BooleanField(default=True)
-    reason = encrypt(models.TextField(blank=True))
+    reason = EncryptedTextField(blank=True)
     
     # Enhanced medication tracking
     medication_type = models.CharField(max_length=50, blank=True)  # e.g., pill, injection, liquid
@@ -123,11 +123,11 @@ class Medication(models.Model):
     orphan_drug = models.BooleanField(default=False)  # For medications developed specifically for rare conditions
     refill_count = models.IntegerField(default=0)
     refill_until = models.DateField(blank=True, null=True)
-    pharmacy_notes = encrypt(models.TextField(blank=True))
+    pharmacy_notes = EncryptedTextField(blank=True)
     
     # Side effects monitoring
     side_effects_reported = models.BooleanField(default=False)
-    side_effects_notes = encrypt(models.TextField(blank=True))
+    side_effects_notes = EncryptedTextField(blank=True)
     
     # Adherence tracking
     adherence_schedule = models.JSONField(blank=True, null=True)  # For storing complex medication schedules
@@ -198,16 +198,16 @@ class Allergy(models.Model):
         LIFE_THREATENING = 'life_threatening', _('Life-threatening')
     
     medical_record = models.ForeignKey(MedicalRecord, on_delete=models.CASCADE, related_name='allergies')
-    agent = encrypt(models.CharField(max_length=255))
-    reaction = encrypt(models.TextField(blank=True))
+    agent = EncryptedCharField(max_length=255)
+    reaction = EncryptedTextField(blank=True)
     severity = models.CharField(max_length=20, choices=Severity.choices, default=Severity.MODERATE)
-    diagnosed_date = encrypt(models.DateField(blank=True, null=True))
+    diagnosed_date = EncryptedDateField(blank=True, null=True)
     
     # Enhanced allergy data
     allergy_type = models.CharField(max_length=50, blank=True)  # e.g., medication, food, environmental
     verification_status = models.CharField(max_length=50, blank=True)  # e.g., confirmed, suspected
-    last_occurrence = encrypt(models.DateField(blank=True, null=True))
-    treatment_notes = encrypt(models.TextField(blank=True))
+    last_occurrence = EncryptedDateField(blank=True, null=True)
+    treatment_notes = EncryptedTextField(blank=True)
     
     # FHIR fields
     fhir_resource_id = models.CharField(max_length=100, blank=True, null=True)
@@ -248,17 +248,17 @@ class Condition(models.Model):
         CONGENITAL = 'congenital', _('Congenital')
     
     medical_record = models.ForeignKey(MedicalRecord, on_delete=models.CASCADE, related_name='conditions')
-    name = encrypt(models.CharField(max_length=255))
+    name = EncryptedCharField(max_length=255)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
     category = models.CharField(max_length=15, choices=Category.choices, default=Category.GENERAL)
-    diagnosed_date = encrypt(models.DateField(blank=True, null=True))
-    resolved_date = encrypt(models.DateField(blank=True, null=True))
-    notes = encrypt(models.TextField(blank=True))
+    diagnosed_date = EncryptedDateField(blank=True, null=True)
+    resolved_date = EncryptedDateField(blank=True, null=True)
+    notes = EncryptedTextField(blank=True)
     
     # Enhanced condition data
-    icd10_code = encrypt(models.CharField(max_length=20, blank=True, null=True))
+    icd10_code = EncryptedCharField(max_length=20, blank=True, null=True)
     is_primary = models.BooleanField(default=False)
-    diagnosing_provider = encrypt(models.CharField(max_length=255, blank=True, null=True))
+    diagnosing_provider = EncryptedCharField(max_length=255, blank=True, null=True)
     
     # Rare condition specific fields
     is_rare_condition = models.BooleanField(default=False)
@@ -271,7 +271,7 @@ class Condition(models.Model):
     
     # Generic biomarker/genetics tracking
     biomarker_status = models.JSONField(blank=True, null=True)  # For storing key biomarkers and status
-    genetic_information = encrypt(models.TextField(blank=True, null=True))  # For genetic information
+    genetic_information = EncryptedTextField(blank=True, null=True)  # For genetic information
     
     # Condition progression tracking
     progression_metrics = models.JSONField(blank=True, null=True)  # For condition-specific metrics
@@ -302,13 +302,13 @@ class Condition(models.Model):
 class ConditionFlare(models.Model):
     """Model for tracking flares or exacerbations of conditions."""
     condition = models.ForeignKey(Condition, on_delete=models.CASCADE, related_name='flares')
-    onset_date = encrypt(models.DateField())
-    resolved_date = encrypt(models.DateField(blank=True, null=True))
-    symptoms = encrypt(models.TextField())
+    onset_date = EncryptedDateField()
+    resolved_date = EncryptedDateField(blank=True, null=True)
+    symptoms = EncryptedTextField()
     severity = models.IntegerField(help_text="Scale of 1-10")
     hospitalized = models.BooleanField(default=False)
-    treatment = encrypt(models.TextField(blank=True))
-    notes = encrypt(models.TextField(blank=True))
+    treatment = EncryptedTextField(blank=True)
+    notes = EncryptedTextField(blank=True)
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -327,10 +327,10 @@ class ConditionFlare(models.Model):
 class Symptom(models.Model):
     """Model for tracking symptoms, particularly important for rare condition tracking."""
     condition = models.ForeignKey(Condition, on_delete=models.CASCADE, related_name='symptoms')
-    name = encrypt(models.CharField(max_length=255))
-    description = encrypt(models.TextField(blank=True))
-    first_observed = encrypt(models.DateField())
-    last_observed = encrypt(models.DateField(blank=True, null=True))
+    name = EncryptedCharField(max_length=255)
+    description = EncryptedTextField(blank=True)
+    first_observed = EncryptedDateField()
+    last_observed = EncryptedDateField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     
     # Severity tracking
@@ -340,7 +340,7 @@ class Symptom(models.Model):
     
     # Impact tracking
     impact_daily_life = models.IntegerField(default=1, help_text="Scale of 1-10")
-    impact_notes = encrypt(models.TextField(blank=True))
+    impact_notes = EncryptedTextField(blank=True)
     
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
@@ -362,14 +362,14 @@ class Symptom(models.Model):
 class Immunization(models.Model):
     """Model for patient immunizations."""
     medical_record = models.ForeignKey(MedicalRecord, on_delete=models.CASCADE, related_name='immunizations')
-    vaccine = encrypt(models.CharField(max_length=255))
-    date_administered = encrypt(models.DateField())
-    administered_by = encrypt(models.CharField(max_length=255, blank=True))
-    lot_number = encrypt(models.CharField(max_length=100, blank=True))
-    notes = encrypt(models.TextField(blank=True))
+    vaccine = EncryptedCharField(max_length=255)
+    date_administered = EncryptedDateField()
+    administered_by = EncryptedCharField(max_length=255, blank=True)
+    lot_number = EncryptedCharField(max_length=100, blank=True)
+    notes = EncryptedTextField(blank=True)
     
     # Enhanced immunization data
-    manufacturer = encrypt(models.CharField(max_length=100, blank=True))
+    manufacturer = EncryptedCharField(max_length=100, blank=True)
     dose_number = models.IntegerField(blank=True, null=True)
     series_doses = models.IntegerField(blank=True, null=True)
     route = models.CharField(max_length=50, blank=True)  # e.g., intramuscular, oral
@@ -403,9 +403,9 @@ class LabTest(models.Model):
         CANCELLED = 'cancelled', _('Cancelled')
     
     medical_record = models.ForeignKey(MedicalRecord, on_delete=models.CASCADE, related_name='lab_tests')
-    name = encrypt(models.CharField(max_length=255))
+    name = EncryptedCharField(max_length=255)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ORDERED)
-    ordered_date = encrypt(models.DateField())
+    ordered_date = EncryptedDateField()
     ordered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, 
         on_delete=models.SET_NULL, 
@@ -414,11 +414,11 @@ class LabTest(models.Model):
         blank=True, 
         null=True
     )
-    completed_date = encrypt(models.DateField(blank=True, null=True))
-    notes = encrypt(models.TextField(blank=True))
+    completed_date = EncryptedDateField(blank=True, null=True)
+    notes = EncryptedTextField(blank=True)
     
     # Enhanced lab test data
-    lab_location = encrypt(models.CharField(max_length=255, blank=True))
+    lab_location = EncryptedCharField(max_length=255, blank=True)
     test_type = models.CharField(max_length=100, blank=True)  # e.g., blood, urine, imaging
     fasting_required = models.BooleanField(default=False)
     priority = models.CharField(max_length=20, blank=True)  # e.g., routine, stat, urgent
@@ -455,12 +455,12 @@ class LabTest(models.Model):
 class LabResult(models.Model):
     """Model for patient lab test results."""
     lab_test = models.ForeignKey(LabTest, on_delete=models.CASCADE, related_name='results')
-    test_name = encrypt(models.CharField(max_length=255))
-    value = encrypt(models.CharField(max_length=100))
-    unit = encrypt(models.CharField(max_length=50, blank=True))
-    reference_range = encrypt(models.CharField(max_length=100, blank=True))
+    test_name = EncryptedCharField(max_length=255)
+    value = EncryptedCharField(max_length=100)
+    unit = EncryptedCharField(max_length=50, blank=True)
+    reference_range = EncryptedCharField(max_length=100, blank=True)
     is_abnormal = models.BooleanField(default=False)
-    notes = encrypt(models.TextField(blank=True))
+    notes = EncryptedTextField(blank=True)
     
     # Enhanced lab result data
     result_date = models.DateTimeField(auto_now_add=True)
@@ -471,10 +471,10 @@ class LabResult(models.Model):
         limit_choices_to={'role': 'provider'},
         null=True, blank=True
     )
-    interpretation = encrypt(models.TextField(blank=True))
+    interpretation = EncryptedTextField(blank=True)
     
     # Rare condition tracking
-    biomarker_significance = encrypt(models.TextField(blank=True))  # Interpretation for rare condition monitoring
+    biomarker_significance = EncryptedTextField(blank=True)  # Interpretation for rare condition monitoring
     
     # FHIR fields
     fhir_resource_id = models.CharField(max_length=100, blank=True, null=True)
@@ -515,19 +515,19 @@ class VitalSign(models.Model):
     
     medical_record = models.ForeignKey(MedicalRecord, on_delete=models.CASCADE, related_name='vital_signs', null=True, blank=True)
     measurement_type = models.CharField(max_length=50, choices=MEASUREMENT_TYPES)
-    value = encrypt(models.CharField(max_length=100))  # Store as string to handle different formats
+    value = EncryptedCharField(max_length=100)  # Store as string to handle different formats
     unit = models.CharField(max_length=50, blank=True)
     measured_at = models.DateTimeField()
     source = models.CharField(max_length=100, blank=True)  # e.g., manual, withings, fitbit, apple_health, google_fit
     source_device_id = models.CharField(max_length=255, blank=True)
-    notes = encrypt(models.TextField(blank=True))
+    notes = EncryptedTextField(blank=True)
     
     # Specific vital sign fields
-    blood_pressure = encrypt(models.CharField(max_length=20, blank=True))  # e.g., "120/80"
-    heart_rate = encrypt(models.IntegerField(null=True, blank=True))
-    temperature = encrypt(models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True))
-    respiratory_rate = encrypt(models.IntegerField(null=True, blank=True))
-    oxygen_saturation = encrypt(models.IntegerField(null=True, blank=True))
+    blood_pressure = EncryptedCharField(max_length=20, blank=True)  # e.g., "120/80"
+    heart_rate = EncryptedIntegerField(null=True, blank=True)
+    temperature = EncryptedDecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    respiratory_rate = EncryptedIntegerField(null=True, blank=True)
+    oxygen_saturation = EncryptedIntegerField(null=True, blank=True)
     
     # Enhanced vitals data
     is_abnormal = models.BooleanField(default=False)
@@ -569,11 +569,11 @@ class Treatment(models.Model):
         CANCELLED = 'cancelled', _('Cancelled')
     
     medical_record = models.ForeignKey(MedicalRecord, on_delete=models.CASCADE, related_name='treatments')
-    name = encrypt(models.CharField(max_length=255))
+    name = EncryptedCharField(max_length=255)
     treatment_type = models.CharField(max_length=100)  # e.g., procedure, therapy, surgery
     status = models.CharField(max_length=15, choices=Status.choices, default=Status.PLANNED)
-    start_date = encrypt(models.DateField())
-    end_date = encrypt(models.DateField(blank=True, null=True))
+    start_date = EncryptedDateField()
+    end_date = EncryptedDateField(blank=True, null=True)
     provider = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -581,15 +581,15 @@ class Treatment(models.Model):
         limit_choices_to={'role': 'provider'},
         null=True, blank=True
     )
-    location = encrypt(models.CharField(max_length=255, blank=True))
-    notes = encrypt(models.TextField(blank=True))
+    location = EncryptedCharField(max_length=255, blank=True)
+    notes = EncryptedTextField(blank=True)
     
     # Enhanced treatment data
-    reason = encrypt(models.TextField(blank=True))
-    outcome = encrypt(models.TextField(blank=True))
-    complications = encrypt(models.TextField(blank=True))
+    reason = EncryptedTextField(blank=True)
+    outcome = EncryptedTextField(blank=True)
+    complications = EncryptedTextField(blank=True)
     follow_up_required = models.BooleanField(default=False)
-    follow_up_notes = encrypt(models.TextField(blank=True))
+    follow_up_notes = EncryptedTextField(blank=True)
     
     # Rare condition specific
     for_rare_condition = models.BooleanField(default=False)
@@ -646,12 +646,12 @@ class FamilyHistory(models.Model):
     
     medical_record = models.ForeignKey(MedicalRecord, on_delete=models.CASCADE, related_name='family_history')
     relationship = models.CharField(max_length=25, choices=RELATIONSHIP_CHOICES)
-    condition = encrypt(models.CharField(max_length=255))
-    diagnosed_age = encrypt(models.IntegerField(blank=True, null=True))
-    notes = encrypt(models.TextField(blank=True))
+    condition = EncryptedCharField(max_length=255)
+    diagnosed_age = EncryptedIntegerField(blank=True, null=True)
+    notes = EncryptedTextField(blank=True)
     is_deceased = models.BooleanField(default=False)
-    deceased_age = encrypt(models.IntegerField(blank=True, null=True))
-    deceased_reason = encrypt(models.CharField(max_length=255, blank=True))
+    deceased_age = EncryptedIntegerField(blank=True, null=True)
+    deceased_reason = EncryptedCharField(max_length=255, blank=True)
     
     # Rare condition specific
     is_rare_condition = models.BooleanField(default=False)
@@ -799,13 +799,13 @@ class EHRIntegration(models.Model):
     )
     integration_type = models.CharField(max_length=20, choices=INTEGRATION_TYPES)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
-    external_id = encrypt(models.CharField(max_length=255, blank=True, null=True))
+    external_id = EncryptedCharField(max_length=255, blank=True, null=True)
     integration_details = models.JSONField(blank=True, null=True)
     last_sync = models.DateTimeField(blank=True, null=True)
     
     # Authentication and access
-    access_token = encrypt(models.TextField(blank=True, null=True))
-    refresh_token = encrypt(models.TextField(blank=True, null=True))
+    access_token = EncryptedTextField(blank=True, null=True)
+    refresh_token = EncryptedTextField(blank=True, null=True)
     token_expiry = models.DateTimeField(blank=True, null=True)
     
     # Consent
@@ -859,15 +859,15 @@ class WearableIntegration(models.Model):
         limit_choices_to={'role': 'patient'}
     )
     device_type = models.CharField(max_length=20, choices=DEVICE_TYPES)
-    device_name = encrypt(models.CharField(max_length=255, blank=True, null=True))
-    device_id = encrypt(models.CharField(max_length=255, blank=True, null=True))
+    device_name = EncryptedCharField(max_length=255, blank=True, null=True)
+    device_id = EncryptedCharField(max_length=255, blank=True, null=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     integration_details = models.JSONField(blank=True, null=True)
     last_sync = models.DateTimeField(blank=True, null=True)
     
     # Authentication and access
-    access_token = encrypt(models.TextField(blank=True, null=True))
-    refresh_token = encrypt(models.TextField(blank=True, null=True))
+    access_token = EncryptedTextField(blank=True, null=True)
+    refresh_token = EncryptedTextField(blank=True, null=True)
     token_expiry = models.DateTimeField(blank=True, null=True)
     
     # Data collection settings

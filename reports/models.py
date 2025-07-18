@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
-from django_cryptography.fields import encrypt
+from healthcare.fields import EncryptedJSONField
 import uuid
 
 User = get_user_model()
@@ -130,7 +130,7 @@ class Report(models.Model):
     error_message = models.TextField(blank=True)
     
     # Results storage options
-    results_json = encrypt(models.JSONField(null=True, blank=True))
+    results_json = EncryptedJSONField(null=True, blank=True)
     file_path = models.CharField(max_length=255, blank=True)
     
     # Metadata
