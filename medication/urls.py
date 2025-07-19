@@ -5,6 +5,8 @@ from .views import (
     MedicationReminderViewSet, AdherenceRecordViewSet, SideEffectViewSet,
     DrugInteractionViewSet
 )
+from users.enhanced_views import EnhancedMedicationViewSet
+
 
 router = DefaultRouter()
 router.register(r'medications', MedicationViewSet, basename='medication')
@@ -17,4 +19,7 @@ router.register(r'interactions', DrugInteractionViewSet, basename='druginteracti
 
 urlpatterns = [
     path('', include(router.urls)),
+        # Enhanced Medication endpoints
+    path('adherence/intelligent-schedule/', EnhancedMedicationViewSet.as_view({'post': 'create_intelligent_reminder_schedule'}), name='intelligent-medication-schedule'),
+    path('adherence/analyze-trends/', EnhancedMedicationViewSet.as_view({'get': 'analyze_adherence_trends'}), name='analyze-adherence-trends'),
 ]

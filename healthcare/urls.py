@@ -10,6 +10,8 @@ from .views import (
     EHRIntegrationViewSet, WearableIntegrationViewSet, RareConditionRegistryViewSet,
     ReferralNetworkViewSet
 )
+from users.enhanced_views import EnhancedTelemedicineViewSet
+
 
 router = DefaultRouter()
 router.register(r'medical-records', MedicalRecordViewSet)
@@ -41,4 +43,7 @@ urlpatterns = [
 
     # Rare disease monitoring
     path('medical-records/<int:pk>/rare-disease-monitoring/', MedicalRecordViewSet.as_view({'get': 'rare_disease_monitoring'}), name='rare-disease-monitoring'),
+        # Enhanced Telemedicine endpoints
+    path('telemedicine/smart-scheduling/', EnhancedTelemedicineViewSet.as_view({'post': 'schedule_intelligent_appointment'}), name='smart-telemedicine-scheduling'),
+    path('telemedicine/provider-dashboard/', EnhancedTelemedicineViewSet.as_view({'get': 'get_provider_dashboard'}), name='provider-telemedicine-dashboard'),
 ]

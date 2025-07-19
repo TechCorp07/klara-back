@@ -7,7 +7,10 @@ from .views import (
     ComplianceProfileViewSet, CaregiverRequestViewSet, EmergencyAccessViewSet,
     HIPAADocumentViewSet, ConsentRecordViewSet
 )
-
+from .enhanced_views import (
+    EnhancedResearchViewSet, 
+    EnhancedNotificationViewSet
+)
 # Create router
 router = DefaultRouter()
 
@@ -145,6 +148,9 @@ urlpatterns = [
     path('researcher-profiles/<int:pk>/verify/', ResearcherProfileViewSet.as_view({'post': 'verify'}), name='verify-researcher'),
     path('research/consents/', UserViewSet.as_view({'get': 'list_research_consents', 'post': 'grant_research_consent'}), name='research-consents'),
     path('research/consents/<uuid:consent_id>/', UserViewSet.as_view({'patch': 'update_research_consent', 'delete': 'withdraw_research_consent'}), name='research-consent-detail'),
+    path('research/create-study/', EnhancedResearchViewSet.as_view({'post': 'create_research_study'}), name='create-research-study'),
+    path('research/patient-dashboard/', EnhancedResearchViewSet.as_view({'get': 'get_patient_research_dashboard'}), name='patient-research-dashboard'),
+    
     
     # Profile completion endpoints
     path('patient-profiles/<int:pk>/complete/', PatientProfileViewSet.as_view({'post': 'complete_profile'}), name='complete-patient-profile'),
@@ -172,6 +178,9 @@ urlpatterns = [
     # Identity verification endpoints
     path('patient-profiles/<int:pk>/initiate-verification/', PatientProfileViewSet.as_view({'post': 'initiate_verification'}), name='initiate-identity-verification'),
     path('patient-profiles/<int:pk>/complete-verification/', PatientProfileViewSet.as_view({'post': 'complete_verification'}), name='complete-identity-verification'),
+    
+    # Enhanced Notification endpoints
+    path('notifications/wearable-alerts/', EnhancedNotificationViewSet.as_view({'post': 'send_wearable_notification'}), name='wearable-alerts'),
 ]
 
 app_name = 'users'

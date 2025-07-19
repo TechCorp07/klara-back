@@ -4,6 +4,8 @@ from .views import (
     WearableIntegrationViewSet, WearableMeasurementViewSet,
     WearableConnectViewSet, DataSyncViewSet, LegacyWithingsViewSet
 )
+from users.enhanced_views import EnhancedWearableDataViewSet
+
 
 router = DefaultRouter()
 router.register(r'integrations', WearableIntegrationViewSet, basename='wearable-integration')
@@ -28,7 +30,9 @@ urlpatterns = [
     # Callback endpoints for various services
     path('callback/fitbit/', WearableConnectViewSet.as_view({'post': 'callback'}), name='fitbit-callback'),
     path('callback/google_fit/', WearableConnectViewSet.as_view({'post': 'callback'}), name='google-fit-callback'),
-    
+        # Enhanced Wearable endpoints
+    path('analytics/trend-analysis/', EnhancedWearableDataViewSet.as_view({'post': 'analyze_wearable_trends'}), name='wearable-trend-analysis'),
+
     # Mobile app endpoints for health data sync
     path('mobile/apple_health/', include([
         path('sync/', DataSyncViewSet.as_view({'post': 'apple_health_sync'}), name='apple-health-sync'),

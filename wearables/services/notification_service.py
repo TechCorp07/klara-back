@@ -1,6 +1,5 @@
 # wearables/services/notification_service.py
 import json
-import requests
 import logging
 from datetime import datetime, timedelta
 from django.conf import settings
@@ -260,6 +259,59 @@ class WearableNotificationService:
             )
         except Exception as e:
             logger.error(f"Failed to log notification delivery: {str(e)}")
+    
+    @classmethod
+    def get_notification_analytics(cls, patient_id: int, days: int = 30) -> Dict:
+        """Get notification delivery analytics."""
+        from ..models import NotificationDelivery
+        from django.db.models import Count
+        
+        notifications = NotificationDelivery.objects.filter(
+            user_id=patient_id,
+            sent_at__gte=timezone.now() - timezone.timedelta(days=days)
+        )
+        
+        return {
+            'total_notifications': notifications.count(),
+            'successful_deliveries': notifications.filter(success=True).count(),
+            'delivery_rate': (notifications.filter(success=True).count() / notifications.count() * 100) if notifications.count() > 0 else 0,
+            'notification_types': dict(notifications.values_list('notification_type').annotate(count=Count('id'))),
+            'engagement_metrics': {
+                'delivered_count': notifications.filter(delivered_at__isnull=False).count(),
+                'read_count': notifications.filter(read_at__isnull=False).count(),
+                'responded_count': notifications.filter(user_response__isnull=False).count()
+            }
+        }
+
+    @classmethod
+    def send_batch_notifications(cls, patient_ids: List[int], notification_data: Dict) -> Dict:
+        """Send notifications to multiple patients."""
+        results = {'successful': [], 'failed': []}
+        
+        for patient_id in patient_ids:
+            try:
+                devices = WearableIntegration.objects.filter(
+                    user_id=patient_id,
+                    status=WearableIntegration.ConnectionStatus.CONNECTED
+                )
+                
+                for device in devices:
+                    success = cls.send_watch_notification(
+                        device_id=device.platform_user_id,
+                        title=notification_data['title'],
+                        message=notification_data['message'],
+                        is_critical=notification_data.get('priority') == 'critical'
+                    )
+                    
+                    if success:
+                        results['successful'].append(patient_id)
+                    else:
+                        results['failed'].append(patient_id)
+                        
+            except Exception as e:
+                results['failed'].append({'patient_id': patient_id, 'error': str(e)})
+        
+        return results
 
 # Make the function available at module level for medication service
 def send_watch_notification(device_id: str, title: str, message: str, **kwargs) -> bool:
