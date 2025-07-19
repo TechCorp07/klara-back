@@ -27,9 +27,10 @@ class EnhancedMedicationViewSet(viewsets.ViewSet):
         method='post',
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
+            required=['medication_id'],
             properties={
                 'medication_id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                'patient_id': openapi.Schema(type=openapi.TYPE_INTEGER, required=False)
+                'patient_id': openapi.Schema(type=openapi.TYPE_INTEGER)
             }
         ),
         responses={200: 'Adherence schedule created successfully'}
@@ -76,12 +77,16 @@ class EnhancedMedicationViewSet(viewsets.ViewSet):
         method='post',
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
+            required=['medication_id'],
             properties={
-                'study_id': openapi.Schema(type=openapi.TYPE_STRING),
-                'analytics_type': openapi.Schema(type=openapi.TYPE_STRING, enum=['comprehensive', 'summary', 'trends'])
+                'medication_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                'reminder_type': openapi.Schema(
+                    type=openapi.TYPE_STRING, 
+                    enum=['standard', 'critical', 'gentle']
+                )
             }
         ),
-        responses={200: 'Research analytics generated successfully'}
+        responses={200: 'Reminder sent successfully'}
     )
     @action(detail=False, methods=['post'])
     def generate_research_analytics(self, request):
@@ -121,6 +126,7 @@ class EnhancedNotificationViewSet(viewsets.ViewSet):
         method='post',
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
+            required=['patient_id', 'notification_type', 'title', 'message'],
             properties={
                 'patient_id': openapi.Schema(type=openapi.TYPE_INTEGER),
                 'notification_type': openapi.Schema(
@@ -129,8 +135,11 @@ class EnhancedNotificationViewSet(viewsets.ViewSet):
                 ),
                 'title': openapi.Schema(type=openapi.TYPE_STRING),
                 'message': openapi.Schema(type=openapi.TYPE_STRING),
-                'priority': openapi.Schema(type=openapi.TYPE_STRING, enum=['low', 'normal', 'high', 'critical']),
-                'schedule_time': openapi.Schema(type=openapi.TYPE_STRING, format='datetime', required=False)
+                'priority': openapi.Schema(
+                    type=openapi.TYPE_STRING, 
+                    enum=['low', 'normal', 'high', 'critical']
+                ),
+                'schedule_time': openapi.Schema(type=openapi.TYPE_STRING, format='datetime')
             }
         ),
         responses={200: 'Notification sent successfully'}
@@ -263,11 +272,15 @@ class EnhancedWearableDataViewSet(viewsets.ViewSet):
         method='post',
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
+            required=['patient_id'],
             properties={
                 'patient_id': openapi.Schema(type=openapi.TYPE_INTEGER),
                 'start_date': openapi.Schema(type=openapi.TYPE_STRING, format='date'),
                 'end_date': openapi.Schema(type=openapi.TYPE_STRING, format='date'),
-                'measurement_types': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_STRING))
+                'measurement_types': openapi.Schema(
+                    type=openapi.TYPE_ARRAY, 
+                    items=openapi.Schema(type=openapi.TYPE_STRING)
+                )
             }
         ),
         responses={200: 'Wearable data analyzed successfully'}
@@ -554,10 +567,11 @@ class EnhancedFHIRViewSet(viewsets.ViewSet):
         method='post',
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
+            required=['patient_id'],
             properties={
                 'patient_id': openapi.Schema(type=openapi.TYPE_INTEGER),
                 'include_family_history': openapi.Schema(type=openapi.TYPE_BOOLEAN, default=False),
-                'destination': openapi.Schema(type=openapi.TYPE_STRING, required=False)
+                'destination': openapi.Schema(type=openapi.TYPE_STRING)
             }
         ),
         responses={200: 'FHIR bundle exported successfully'}
@@ -591,6 +605,7 @@ class EnhancedFHIRViewSet(viewsets.ViewSet):
         method='post',
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
+            required=['patient_id', 'fhir_bundle', 'source_institution'],
             properties={
                 'patient_id': openapi.Schema(type=openapi.TYPE_INTEGER),
                 'fhir_bundle': openapi.Schema(type=openapi.TYPE_OBJECT),
@@ -631,7 +646,7 @@ class EnhancedFHIRViewSet(viewsets.ViewSet):
             type=openapi.TYPE_OBJECT,
             properties={
                 'condition_code': openapi.Schema(type=openapi.TYPE_STRING),
-                'patient_ids': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_INTEGER), required=False)
+                'patient_ids': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_INTEGER))
             }
         ),
         responses={200: 'Research bundle created successfully'}
@@ -673,14 +688,21 @@ class EnhancedTelemedicineViewSet(viewsets.ViewSet):
         method='post',
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
+            required=['patient_id', 'provider_id', 'start_time'],
             properties={
                 'patient_id': openapi.Schema(type=openapi.TYPE_INTEGER),
                 'provider_id': openapi.Schema(type=openapi.TYPE_INTEGER),
                 'start_time': openapi.Schema(type=openapi.TYPE_STRING, format='datetime'),
                 'duration': openapi.Schema(type=openapi.TYPE_INTEGER, default=30),
-                'platform': openapi.Schema(type=openapi.TYPE_STRING, enum=['zoom', 'teams', 'webex', 'custom']),
+                'platform': openapi.Schema(
+                    type=openapi.TYPE_STRING, 
+                    enum=['zoom', 'teams', 'webex', 'custom']
+                ),
                 'reason_display': openapi.Schema(type=openapi.TYPE_STRING),
-                'priority': openapi.Schema(type=openapi.TYPE_STRING, enum=['routine', 'urgent', 'stat'])
+                'priority': openapi.Schema(
+                    type=openapi.TYPE_STRING, 
+                    enum=['routine', 'urgent', 'stat']
+                )
             }
         ),
         responses={200: 'Telemedicine appointment scheduled successfully'}
@@ -747,6 +769,7 @@ class EnhancedTelemedicineViewSet(viewsets.ViewSet):
         method='post',
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
+            required=['encounter_id', 'vitals_data'],
             properties={
                 'encounter_id': openapi.Schema(type=openapi.TYPE_INTEGER),
                 'vitals_data': openapi.Schema(
@@ -829,12 +852,22 @@ class EnhancedResearchViewSet(viewsets.ViewSet):
         method='post',
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
+            required=['title', 'description'],
             properties={
                 'title': openapi.Schema(type=openapi.TYPE_STRING),
                 'description': openapi.Schema(type=openapi.TYPE_STRING),
-                'study_type': openapi.Schema(type=openapi.TYPE_STRING, enum=['observational', 'interventional']),
-                'target_conditions': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_STRING)),
-                'data_requirements': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_STRING)),
+                'study_type': openapi.Schema(
+                    type=openapi.TYPE_STRING, 
+                    enum=['observational', 'interventional']
+                ),
+                'target_conditions': openapi.Schema(
+                    type=openapi.TYPE_ARRAY, 
+                    items=openapi.Schema(type=openapi.TYPE_STRING)
+                ),
+                'data_requirements': openapi.Schema(
+                    type=openapi.TYPE_ARRAY, 
+                    items=openapi.Schema(type=openapi.TYPE_STRING)
+                ),
                 'duration_months': openapi.Schema(type=openapi.TYPE_INTEGER),
                 'max_participants': openapi.Schema(type=openapi.TYPE_INTEGER)
             }
