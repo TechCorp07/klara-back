@@ -1,5 +1,4 @@
 # users/views.py
-from medication.models import AdherenceRecord
 import pyotp
 import qrcode
 import io
@@ -21,7 +20,9 @@ from django.contrib.auth import get_user_model
 from drf_yasg.utils import swagger_auto_schema
 from django.contrib.auth.models import AnonymousUser
 from rest_framework.pagination import PageNumberPagination
-
+from wearables.models import WearableIntegration, WearableMeasurement
+from telemedicine.models import Appointment            
+from medication.models import AdherenceRecord
 
 from .models import (
     AuditTrail, EmergencyAccess, ConsentRecord, HIPAADocument, PharmaceuticalTenant, ResearchConsent, TwoFactorDevice, 
@@ -2262,7 +2263,7 @@ class PatientViewSet(viewsets.ModelViewSet):
             ).select_related(
             'prescriber',
             'medical_record',
-            'condition'
+            'created_by'
             )
             
             medications_list = []
@@ -2378,7 +2379,6 @@ class PatientViewSet(viewsets.ModelViewSet):
     def _get_wearable_data(self, user):
         """Get smart watch and wearable device data."""
         try:
-            from wearables.models import WearableIntegration, WearableMeasurement
             # Get connected devices
             connected_devices = []
             wearable_integrations = WearableIntegration.objects.filter(
@@ -2398,7 +2398,7 @@ class PatientViewSet(viewsets.ModelViewSet):
             # Get today's summary from wearable measurements
             today = timezone.now().date()
             today_measurements = WearableMeasurement.objects.filter(
-                integration__user=user,
+                user=user,
                 #measurement_date=today
             ).order_by('-measured_at')[:10]
             
@@ -2445,15 +2445,15 @@ class PatientViewSet(viewsets.ModelViewSet):
     def _get_appointments_data(self, user):
         """Get appointment data including upcoming and recent appointments."""
         try:
-            from telemedicine.models import Appointment
             now = timezone.now()
             
             # Get upcoming appointments
             appointments_queryset = Appointment.objects.filter(
                 patient=user,
-                appointment_date__gte=now.date(),
+                scheduled_time__gte=timezone.now(),
+                scheduled_time__date__lte=timezone.now().date() + timedelta(days=days),
                 status__in=['scheduled', 'confirmed']
-            ).order_by('appointment_date', 'appointment_time')[:5]
+            ).order_by('scheduled_time').first()
             
             upcoming_list = []
             for apt in appointments_queryset:
@@ -2485,10 +2485,12 @@ class PatientViewSet(viewsets.ModelViewSet):
                     "follow_up_required": apt.follow_up_required
                 })
             
-            return {
-                "upcoming": upcoming_list,
-                "recent": recent_list
-            }
+            if appointments_queryset:
+                return {
+                    'provider': appointments_queryset.provider.get_full_name() if appointments_queryset.provider else 'Unknown',
+                    'date': appointments_queryset.scheduled_time.date().isoformat(),
+                    'time': appointments_queryset.scheduled_time.time().isoformat()
+                }
             
         except Exception as e:
             logger.error(f"Error getting appointments data for user {user.id}: {str(e)}")
