@@ -20,8 +20,7 @@ from django.contrib.auth import get_user_model
 from drf_yasg.utils import swagger_auto_schema
 from django.contrib.auth.models import AnonymousUser
 from rest_framework.pagination import PageNumberPagination
-from wearables.models import WearableIntegration, WearableMeasurement
-from telemedicine.models import Appointment            
+from wearables.models import WearableIntegration, WearableMeasurement          
 from medication.models import AdherenceRecord
 
 from .models import (
@@ -2444,7 +2443,10 @@ class PatientViewSet(viewsets.ModelViewSet):
 
     def _get_appointments_data(self, user):
         """Get appointment data including upcoming and recent appointments."""
+        days = 7
+        
         try:
+            from telemedicine.models import Appointment  
             now = timezone.now()
             
             # Get upcoming appointments
@@ -2453,7 +2455,7 @@ class PatientViewSet(viewsets.ModelViewSet):
                 scheduled_time__gte=timezone.now(),
                 scheduled_time__date__lte=timezone.now().date() + timedelta(days=days),
                 status__in=['scheduled', 'confirmed']
-            ).order_by('scheduled_time').first()
+            ).order_by('scheduled_time')[:5]
             
             upcoming_list = []
             for apt in appointments_queryset:
@@ -2474,23 +2476,32 @@ class PatientViewSet(viewsets.ModelViewSet):
                 appointment_date__lt=now.date(),
                 appointment_date__gte=now.date() - timedelta(days=30),
                 status='completed'
-            ).order_by('-appointment_date', '-appointment_time')[:3]
+            ).order_by('-scheduled_time')[:3]
             
             recent_list = []
             for apt in recent_appointments:
                 recent_list.append({
-                    "date": apt.appointment_date.isoformat(),
+                    "date": apt.scheduled_time.date().isoformat(),
                     "provider": apt.provider.get_full_name() if apt.provider else "Unknown",
-                    "summary": apt.notes or f"{apt.appointment_type} completed",
-                    "follow_up_required": apt.follow_up_required
+                    "summary": getattr(apt, 'notes', None) or f"{getattr(apt, 'appointment_type', 'Appointment')} completed",
+                    "follow_up_required": getattr(apt, 'follow_up_required', False)
                 })
             
-            if appointments_queryset:
-                return {
-                    'provider': appointments_queryset.provider.get_full_name() if appointments_queryset.provider else 'Unknown',
-                    'date': appointments_queryset.scheduled_time.date().isoformat(),
-                    'time': appointments_queryset.scheduled_time.time().isoformat()
+                    # Get next single appointment for summary
+            next_appointment = appointments_queryset.first() if appointments_queryset else None
+            next_appointment_data = None
+            if next_appointment:
+                next_appointment_data = {
+                    'provider': next_appointment.provider.get_full_name() if next_appointment.provider else 'Unknown',
+                    'date': next_appointment.scheduled_time.date().isoformat(),
+                    'time': next_appointment.scheduled_time.time().isoformat()
                 }
+            
+            return {
+                "upcoming": upcoming_list,
+                "recent": recent_list,
+                "next_appointment": next_appointment_data
+            }
             
         except Exception as e:
             logger.error(f"Error getting appointments data for user {user.id}: {str(e)}")
