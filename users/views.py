@@ -2254,12 +2254,10 @@ class PatientViewSet(viewsets.ModelViewSet):
         """Get comprehensive medication adherence data."""
         try:
             from medication.models import Medication, AdherenceRecord
-            from datetime import timedelta
-            
             # Get active medications
-            active_medications = Medication.objects.filter(
+            medications_queryset = Medication.objects.filter(
                 patient=user,
-                status='active',
+                active=True,
                 end_date__isnull=True
             ).select_related('prescribed_by')
             
@@ -2267,7 +2265,7 @@ class PatientViewSet(viewsets.ModelViewSet):
             overall_adherence = 0
             missed_today = 0
             
-            for med in active_medications[:10]:  # Limit to prevent performance issues
+            for med in medications_queryset[:10]:  # Limit to prevent performance issues
                 # Calculate adherence rate (simplified - in production, use proper adherence calculation)
                 adherence_records = AdherenceRecord.objects.filter(
                     medication=med,
@@ -2308,7 +2306,7 @@ class PatientViewSet(viewsets.ModelViewSet):
             
             # Get upcoming refills
             upcoming_refills = []
-            for med in active_medications:
+            for med in medications_queryset:
                 if med.supply_days_remaining and med.supply_days_remaining <= 14:
                     upcoming_refills.append({
                         "medication": med.name,
@@ -2339,22 +2337,20 @@ class PatientViewSet(viewsets.ModelViewSet):
         """Get current vitals and trends data."""
         try:
             from healthcare.models import VitalSign
-            from datetime import timedelta
-            
             # Get most recent vitals
-            latest_vitals = VitalSign.objects.filter(
+            vitals_queryset = VitalSign.objects.filter(
                 medical_record=medical_record
-            ).order_by('-recorded_at').first() if medical_record else None
+            ).order_by('-measured_at').first() if medical_record else None
             
             current_vitals = {}
-            if latest_vitals:
+            if vitals_queryset:
                 current_vitals = {
-                    "blood_pressure": f"{latest_vitals.systolic_bp}/{latest_vitals.diastolic_bp}" if latest_vitals.systolic_bp else None,
-                    "heart_rate": latest_vitals.heart_rate,
-                    "temperature": float(latest_vitals.temperature) if latest_vitals.temperature else None,
-                    "weight": float(latest_vitals.weight) if latest_vitals.weight else None,
-                    "oxygen_saturation": latest_vitals.oxygen_saturation,
-                    "pain_level": latest_vitals.pain_level
+                    "blood_pressure": f"{vitals_queryset.systolic_bp}/{vitals_queryset.diastolic_bp}" if vitals_queryset.systolic_bp else None,
+                    "heart_rate": vitals_queryset.heart_rate,
+                    "temperature": float(vitals_queryset.temperature) if vitals_queryset.temperature else None,
+                    "weight": float(vitals_queryset.weight) if vitals_queryset.weight else None,
+                    "oxygen_saturation": vitals_queryset.oxygen_saturation,
+                    "pain_level": vitals_queryset.pain_level
                 }
                 # Remove None values
                 current_vitals = {k: v for k, v in current_vitals.items() if v is not None}
@@ -2365,7 +2361,7 @@ class PatientViewSet(viewsets.ModelViewSet):
             return {
                 "current": current_vitals,
                 "trends": trends,
-                "last_recorded": latest_vitals.recorded_at.isoformat() if latest_vitals else timezone.now().isoformat()
+                "last_recorded": vitals_queryset.recorded_at.isoformat() if vitals_queryset else timezone.now().isoformat()
             }
             
         except Exception as e:
@@ -2380,16 +2376,14 @@ class PatientViewSet(viewsets.ModelViewSet):
         """Get smart watch and wearable device data."""
         try:
             from wearables.models import WearableIntegration, WearableMeasurement
-            from datetime import timedelta
-            
             # Get connected devices
             connected_devices = []
-            integrations = WearableIntegration.objects.filter(
+            wearable_queryset  = WearableIntegration.objects.filter(
                 user=user,
-                is_active=True
+                status='connected'
             )
             
-            for integration in integrations:
+            for integration in wearable_queryset:
                 connected_devices.append({
                     "id": integration.id,
                     "type": integration.device_type.lower(),
@@ -2449,19 +2443,17 @@ class PatientViewSet(viewsets.ModelViewSet):
         """Get appointment data including upcoming and recent appointments."""
         try:
             from healthcare.models import Appointment
-            from datetime import timedelta
-            
             now = timezone.now()
             
             # Get upcoming appointments
-            upcoming_appointments = Appointment.objects.filter(
+            appointments_queryset = Appointment.objects.filter(
                 patient=user,
                 appointment_date__gte=now.date(),
                 status__in=['scheduled', 'confirmed']
             ).order_by('appointment_date', 'appointment_time')[:5]
             
             upcoming_list = []
-            for apt in upcoming_appointments:
+            for apt in appointments_queryset:
                 upcoming_list.append({
                     "id": apt.id,
                     "date": apt.appointment_date.isoformat(),
@@ -2554,7 +2546,7 @@ class PatientViewSet(viewsets.ModelViewSet):
             enrolled_studies = []
             research_consents = ResearchConsent.objects.filter(
                 patient=user,
-                consent_given=True,
+                consented=True,
                 withdrawn=False
             )
             
