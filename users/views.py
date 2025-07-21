@@ -1,4 +1,5 @@
 # users/views.py
+from medication.models import AdherenceRecord
 import pyotp
 import qrcode
 import io
@@ -2253,20 +2254,22 @@ class PatientViewSet(viewsets.ModelViewSet):
     def _get_medication_data(self, user):
         """Get comprehensive medication adherence data."""
         try:
-            from medication.models import Medication, AdherenceRecord
+            from healthcare.models import Medication
             # Get active medications
             medications_queryset = Medication.objects.filter(
-                patient=user,
+                medical_record__patient=user,
                 active=True,
-                end_date__isnull=True
-            ).select_related('prescribed_by')
+            ).select_related(
+            'prescriber',
+            'medical_record',
+            'condition'
+            )
             
             medications_list = []
             overall_adherence = 0
             missed_today = 0
             
             for med in medications_queryset[:10]:  # Limit to prevent performance issues
-                # Calculate adherence rate (simplified - in production, use proper adherence calculation)
                 adherence_records = AdherenceRecord.objects.filter(
                     medication=med,
                     date_taken__gte=timezone.now().date() - timedelta(days=30)
@@ -2378,12 +2381,12 @@ class PatientViewSet(viewsets.ModelViewSet):
             from wearables.models import WearableIntegration, WearableMeasurement
             # Get connected devices
             connected_devices = []
-            wearable_queryset  = WearableIntegration.objects.filter(
+            wearable_integrations = WearableIntegration.objects.filter(
                 user=user,
                 status='connected'
             )
             
-            for integration in wearable_queryset:
+            for integration in wearable_integrations:
                 connected_devices.append({
                     "id": integration.id,
                     "type": integration.device_type.lower(),
@@ -2396,8 +2399,8 @@ class PatientViewSet(viewsets.ModelViewSet):
             today = timezone.now().date()
             today_measurements = WearableMeasurement.objects.filter(
                 integration__user=user,
-                measurement_date=today
-            )
+                #measurement_date=today
+            ).order_by('-measured_at')[:10]
             
             today_summary = {
                 "steps": 0,
@@ -2442,7 +2445,7 @@ class PatientViewSet(viewsets.ModelViewSet):
     def _get_appointments_data(self, user):
         """Get appointment data including upcoming and recent appointments."""
         try:
-            from healthcare.models import Appointment
+            from telemedicine.models import Appointment
             now = timezone.now()
             
             # Get upcoming appointments
@@ -2545,7 +2548,7 @@ class PatientViewSet(viewsets.ModelViewSet):
             # Get enrolled studies (simplified - in production, query actual research studies)
             enrolled_studies = []
             research_consents = ResearchConsent.objects.filter(
-                patient=user,
+                user=user,
                 consented=True,
                 withdrawn=False
             )
