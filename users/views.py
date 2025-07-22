@@ -2443,38 +2443,37 @@ class PatientViewSet(viewsets.ModelViewSet):
 
     def _get_appointments_data(self, user):
         """Get appointment data including upcoming and recent appointments."""
-        days = 7
+        days = 7  # Default to next 7 days for upcoming appointments
         
         try:
             from telemedicine.models import Appointment  
             now = timezone.now()
             
             # Get upcoming appointments
-            appointments_queryset = Appointment.objects.filter(
+            upcoming_appointments = Appointment.objects.filter(
                 patient=user,
-                scheduled_time__gte=timezone.now(),
-                scheduled_time__date__lte=timezone.now().date() + timedelta(days=days),
+                scheduled_time__gte=now,
+                scheduled_time__date__lte=now.date() + timedelta(days=days),
                 status__in=['scheduled', 'confirmed']
             ).order_by('scheduled_time')[:5]
             
             upcoming_list = []
-            for apt in appointments_queryset:
+            for apt in upcoming_appointments:
                 upcoming_list.append({
                     "id": apt.id,
-                    "date": apt.appointment_date.isoformat(),
-                    "time": apt.appointment_time.strftime("%H:%M") if apt.appointment_time else "TBD",
+                    "date": apt.scheduled_time.date().isoformat(),
+                    "time": apt.scheduled_time.time().isoformat(),
                     "provider_name": apt.provider.get_full_name() if apt.provider else "TBD",
-                    "appointment_type": apt.appointment_type or "Consultation",
-                    "location": apt.location or "TBD",
-                    "is_telemedicine": apt.is_telemedicine,
-                    "preparation_notes": apt.preparation_notes
+                    "appointment_type": getattr(apt, 'appointment_type', 'Consultation'),
+                    "reason": getattr(apt, 'reason', 'General consultation'),
+                    "is_telemedicine": getattr(apt, 'is_telemedicine', False),
                 })
             
             # Get recent appointments
             recent_appointments = Appointment.objects.filter(
                 patient=user,
-                appointment_date__lt=now.date(),
-                appointment_date__gte=now.date() - timedelta(days=30),
+                scheduled_time__lt=now,
+                scheduled_time__date__gte=now.date() - timedelta(days=30),
                 status='completed'
             ).order_by('-scheduled_time')[:3]
             
@@ -2487,8 +2486,8 @@ class PatientViewSet(viewsets.ModelViewSet):
                     "follow_up_required": getattr(apt, 'follow_up_required', False)
                 })
             
-                    # Get next single appointment for summary
-            next_appointment = appointments_queryset.first() if appointments_queryset else None
+            # Get next single appointment for summary
+            next_appointment = upcoming_appointments.first() if upcoming_appointments else None
             next_appointment_data = None
             if next_appointment:
                 next_appointment_data = {
@@ -2507,7 +2506,8 @@ class PatientViewSet(viewsets.ModelViewSet):
             logger.error(f"Error getting appointments data for user {user.id}: {str(e)}")
             return {
                 "upcoming": [],
-                "recent": []
+                "recent": [],
+                "next_appointment": None
             }
 
     def _get_care_team_data(self, user, medical_record):
@@ -2846,15 +2846,15 @@ class PatientViewSet(viewsets.ModelViewSet):
     def _get_last_checkup_date(self, user):
         """Get the date of the last medical checkup."""
         try:
-            from healthcare.models import Appointment
+            from telemedicine.models import Appointment
             last_checkup = Appointment.objects.filter(
                 patient=user,
                 status='completed',
                 appointment_type__in=['checkup', 'follow_up', 'consultation']
-            ).order_by('-appointment_date').first()
+            ).order_by('-scheduled_time').first()
             
             if last_checkup:
-                return last_checkup.appointment_date.isoformat()
+                return last_checkup.scheduled_time.date().isoformat()
         except:
             pass
         
@@ -2868,10 +2868,10 @@ class PatientViewSet(viewsets.ModelViewSet):
                 patient=user,
                 appointment_date__gte=timezone.now().date(),
                 status__in=['scheduled', 'confirmed']
-            ).order_by('appointment_date').first()
+            ).order_by('scheduled_time').first()
             
             if next_appointment:
-                return next_appointment.appointment_date.isoformat()
+                return next_appointment.scheduled_time.date().isoformat()
         except:
             pass
         
@@ -2911,19 +2911,18 @@ class PatientViewSet(viewsets.ModelViewSet):
         """Get next appointment within specified days."""
         try:
             from healthcare.models import Appointment
-            from datetime import timedelta
             
             appointment = Appointment.objects.filter(
                 patient=user,
                 appointment_date__gte=timezone.now().date(),
                 appointment_date__lte=timezone.now().date() + timedelta(days=days),
                 status__in=['scheduled', 'confirmed']
-            ).order_by('appointment_date').first()
+            ).order_by('scheduled_time').first()
             
             if appointment:
                 return {
                     'provider': appointment.provider.get_full_name() if appointment.provider else 'Unknown',
-                    'date': appointment.appointment_date.isoformat()
+                    'date': appointment.scheduled_time.date().isoformat()
                 }
         except:
             pass
