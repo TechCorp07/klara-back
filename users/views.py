@@ -415,12 +415,14 @@ class UserViewSet(BaseViewSet):
             # Generate JWT access token
             access_token = JWTAuthenticationManager.create_access_token(user, session)
             
-            session_token = SessionManager.create_session_token(session, duration_hours=1)
-            
             # Generate refresh token
             refresh_token = JWTAuthenticationManager.create_refresh_token(
                 user, session, ip_address
             )
+            # Generate session token - ADD DEBUG HERE
+            print(f"🔍 BACKEND: Creating session token for session {session.session_id}")
+            session_token = SessionManager.create_session_token(session, duration_hours=1)
+            print(f"🔍 BACKEND: Session token created: {session_token[:20]}..." if session_token else "❌ BACKEND: Session token creation failed")
             
             # Update user login tracking
             user.last_login = timezone.now()
@@ -447,6 +449,10 @@ class UserViewSet(BaseViewSet):
             },
             'permissions': JWTAuthenticationManager._get_user_permissions(user),
         }
+        # ADD DEBUG FOR RESPONSE DATA
+        print(f"🔍 BACKEND: Response includes session_token: {bool(response_data.get('session_token'))}")
+        print(f"🔍 BACKEND: Response keys: {list(response_data.keys())}")
+        print(f"🔍 BACKEND: Session token in response: {response_data.get('session_token', 'MISSING')[:20]}..." if response_data.get('session_token') else "❌ BACKEND: No session_token in response")
         
         # Add verification warnings if needed
         if hasattr(user, 'patient_profile') and user.patient_profile:
