@@ -47,7 +47,8 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
         # Skip JWT auth for certain paths
         skip_paths = [
             '/api/users/auth/login/',
-            '/api/users/auth/register/', 
+            '/api/users/auth/register/',
+            '/api/users/auth/refresh/', 
             '/api/docs/',
             '/api/schema/',
         ]
@@ -56,6 +57,9 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
             return None
         
         if request.path.startswith('/static/') or request.path.startswith('/media/'):
+            return None
+        
+        if request.path in skip_paths:
             return None
         
         # Skip authentication for public paths
