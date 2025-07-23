@@ -43,6 +43,15 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
         is authenticated without making external API calls, eliminating
         the bottleneck that was causing race conditions in your current system.
         """
+        
+        # Skip JWT auth for certain paths
+        skip_paths = [
+            '/api/users/auth/login/',
+            '/api/users/auth/register/', 
+            '/api/docs/',
+            '/api/schema/',
+        ]
+        
         if request.path.startswith('/admin/'):
             return None
         

@@ -211,20 +211,53 @@ class UserViewSet(BaseViewSet):
     def refresh_token(self, request):
         """
         Refresh JWT access token using refresh token.
-        
-        This endpoint enables automatic token refresh without requiring
-        full re-authentication, eliminating race conditions in token renewal.
+        Requires valid authentication (even if token is near expiry).
         """
+        # Check if user is authenticated (but allow near-expired tokens)
+        if not request.user or not request.user.is_authenticated:
+            return Response({
+                'error': 'Authentication required',
+                'message': 'Valid authentication token required',
+                'type': 'AUTH_REQUIRED',
+                'detail': 'Must be authenticated to refresh tokens'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
         refresh_token = request.data.get('refresh_token')
         
         if not refresh_token:
             return Response({
-                'detail': 'Refresh token is required.'
+                'error': 'Refresh token required',
+                'detail': 'Refresh token is required for token renewal'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get client information
+        # Additional security: Verify refresh token belongs to authenticated user
+        try:
+            # Hash the refresh token to find it in database
+            token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+            stored_refresh_token = RefreshToken.objects.get(
+                token_hash=token_hash, 
+                user=request.user,  # Must belong to authenticated user
+                is_revoked=False
+            )
+        except RefreshToken.DoesNotExist:
+            return Response({
+                'error': 'Invalid refresh token',
+                'detail': 'Refresh token is invalid or does not belong to this user'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        # Get client information for security logging
         ip_address = self.get_client_ip(request)
         user_agent = self.get_user_agent(request)
+        
+        # Additional security checks
+        if stored_refresh_token.last_used_ip and stored_refresh_token.last_used_ip != ip_address:
+            # Log suspicious activity
+            self.log_security_event(
+                user=request.user,
+                event_type="SUSPICIOUS_TOKEN_REFRESH",
+                description=f"Token refresh from different IP. Original: {stored_refresh_token.last_used_ip}, Current: {ip_address}",
+                request=request
+            )
         
         # Attempt to refresh the token
         success, new_access_token, error_message = JWTAuthenticationManager.refresh_access_token(
@@ -233,14 +266,24 @@ class UserViewSet(BaseViewSet):
         
         if not success:
             return Response({
-                'detail': error_message or 'Token refresh failed.'
+                'error': 'Token refresh failed',
+                'detail': error_message or 'Unable to refresh token'
             }, status=status.HTTP_401_UNAUTHORIZED)
         
-        return Response({
+        # Return new token with user data
+        response_data = {
             'access_token': new_access_token,
-            'token_type': 'Bearer',
-            'expires_in': JWTAuthenticationManager.ACCESS_TOKEN_LIFETIME.total_seconds(),
-        })
+            'token_type': 'Bearer', 
+            'expires_in': 15 * 60,  # 15 minutes
+            'user': UserSerializer(request.user).data,
+        }
+        
+        # Include tab_id if provided
+        tab_id = request.data.get('tab_id')
+        if tab_id:
+            response_data['tab_id'] = tab_id
+        
+        return Response(response_data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'])
     def session_health(self, request):
@@ -2327,7 +2370,7 @@ class PatientViewSet(viewsets.ModelViewSet):
                     }
             except:
                 pass
-            
+
             # Get vitals
             vitals = []
             try:
@@ -2348,7 +2391,7 @@ class PatientViewSet(viewsets.ModelViewSet):
                         })
             except:
                 pass
-            
+
             # Get care team
             care_team = []
             try:
@@ -2400,11 +2443,11 @@ class PatientViewSet(viewsets.ModelViewSet):
             except Exception as e:
                 logger.error(f"Error getting research participation: {str(e)}")
                 pass
-            
+
             # Get community groups (chat groups)
             community_groups = []
             # TODO: Implement when chat/community system is added
-            
+
             # Build final response matching frontend expectations
             dashboard_data = {
                 "patient_info": patient_info,
@@ -2416,9 +2459,9 @@ class PatientViewSet(viewsets.ModelViewSet):
                 "research_participation": research_participation,
                 "community_groups": community_groups
             }
-            
+
             return Response(dashboard_data)
-            
+
         except Exception as e:
             logger.error(f"Error generating patient dashboard for user {request.user.id}: {str(e)}")
             
