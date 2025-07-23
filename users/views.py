@@ -207,27 +207,13 @@ class UserViewSet(BaseViewSet):
             'user': UserSerializer(user).data,
             'message': 'Registration successful. Your account is pending administrator approval.'
         }, status=status.HTTP_201_CREATED)
-
-    @action(detail=False, methods=['post'])
+    
+    @action(detail=False, methods=['post'], permission_classes=[], authentication_classes=[])  # ✅ ADD BOTH OF THESE
     def refresh_token(self, request):
         """
         Refresh JWT access token using refresh token.
-        Requires valid authentication (even if token is near expiry).
+        No DRF authentication required since we handle refresh token validation manually.
         """
-        # ✅ DEBUG: Check authentication status
-        print(f"🔍 Refresh request - User authenticated: {request.user.is_authenticated}")
-        print(f"🔍 User: {request.user}")
-        print(f"🔍 Has JWT payload: {hasattr(request, 'jwt_payload')}")
-        
-        # Check if user is authenticated (but allow near-expired tokens)
-        if not request.user or not request.user.is_authenticated:
-            return Response({
-                'error': 'Authentication required',
-                'message': 'Valid authentication token required',
-                'type': 'AUTH_REQUIRED',
-                'detail': 'Must be authenticated to refresh tokens'
-            }, status=status.HTTP_401_UNAUTHORIZED)
-        
         refresh_token = request.data.get('refresh_token')
         
         if not refresh_token:
@@ -236,36 +222,11 @@ class UserViewSet(BaseViewSet):
                 'detail': 'Refresh token is required for token renewal'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Additional security: Verify refresh token belongs to authenticated user
-        try:
-            # Hash the refresh token to find it in database
-            token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
-            stored_refresh_token = RefreshToken.objects.get(
-                token_hash=token_hash, 
-                user=request.user,  # Must belong to authenticated user
-                is_revoked=False
-            )
-        except RefreshToken.DoesNotExist:
-            return Response({
-                'error': 'Invalid refresh token',
-                'detail': 'Refresh token is invalid or does not belong to this user'
-            }, status=status.HTTP_401_UNAUTHORIZED)
-        
         # Get client information for security logging
         ip_address = self.get_client_ip(request)
         user_agent = self.get_user_agent(request)
         
-        # Additional security checks
-        if stored_refresh_token.last_used_ip and stored_refresh_token.last_used_ip != ip_address:
-            # Log suspicious activity
-            self.log_security_event(
-                user=request.user,
-                event_type="SUSPICIOUS_TOKEN_REFRESH",
-                description=f"Token refresh from different IP. Original: {stored_refresh_token.last_used_ip}, Current: {ip_address}",
-                request=request
-            )
-        
-        # Attempt to refresh the token
+        # Attempt to refresh the token using the refresh token manager
         success, new_access_token, error_message = JWTAuthenticationManager.refresh_access_token(
             refresh_token, ip_address, user_agent
         )
@@ -276,13 +237,33 @@ class UserViewSet(BaseViewSet):
                 'detail': error_message or 'Unable to refresh token'
             }, status=status.HTTP_401_UNAUTHORIZED)
         
+        # Get user info from the new token for response
+        try:
+            import jwt
+            unverified_payload = jwt.decode(new_access_token, options={"verify_signature": False})
+            user_id = unverified_payload.get('user_id')
+            
+            if user_id:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                user = User.objects.get(id=user_id)
+                user_data = UserSerializer(user).data
+            else:
+                user_data = None
+                
+        except Exception as e:
+            user_data = None
+        
         # Return new token with user data
         response_data = {
             'access_token': new_access_token,
             'token_type': 'Bearer', 
             'expires_in': 15 * 60,  # 15 minutes
-            'user': UserSerializer(request.user).data,
         }
+        
+        # Include user data if available
+        if user_data:
+            response_data['user'] = user_data
         
         # Include tab_id if provided
         tab_id = request.data.get('tab_id')
