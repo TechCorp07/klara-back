@@ -38,11 +38,9 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
     def process_request(self, request):
         """
         Process incoming request and authenticate user via JWT.
-        
-        This method runs for every request and determines if the user
-        is authenticated without making external API calls, eliminating
-        the bottleneck that was causing race conditions in your current system.
         """
+        # ✅ ADD DEBUG LOGGING
+        print(f"🔍 JWT Middleware processing: {request.path}")
         
         # Skip JWT auth for certain paths
         skip_paths = [
@@ -52,14 +50,17 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
             '/api/docs/',
             '/api/schema/',
         ]
+        # ✅ ADD DEBUG CHECK
+        if request.path in skip_paths:
+            print(f"✅ Skipping JWT auth for: {request.path}")
+            return None
+        
+        print(f"🔍 Checking auth for: {request.path}")
         
         if request.path.startswith('/admin/'):
             return None
         
         if request.path.startswith('/static/') or request.path.startswith('/media/'):
-            return None
-        
-        if request.path in skip_paths:
             return None
         
         # Skip authentication for public paths
@@ -70,12 +71,21 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
         # Extract JWT token from Authorization header or cookie
         jwt_token = self._extract_jwt_token(request)
         
+        # ✅ ADD DEBUG LOGGING
+        print(f"🔑 Token extracted: {bool(jwt_token)}")
+        if jwt_token:
+            print(f"🔑 Token preview: {jwt_token[:20]}...")
+            
         if not jwt_token:
+            print("❌ No token found")
             return self._create_auth_required_response("Authentication token required")
         
         # Validate JWT token locally (no database calls for basic validation)
         is_valid, payload, error_message = JWTAuthenticationManager.validate_access_token(jwt_token)
         
+        # ✅ ADD DEBUG LOGGING
+        print(f"🔍 Token validation result: valid={is_valid}, error={error_message}")
+    
         if not is_valid:
             # Log authentication failure for security monitoring
             self._log_auth_failure(request, error_message)
@@ -117,10 +127,13 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
         Extract JWT token from Authorization header ONLY.
         NO cookie fallback for tab-specific authentication.
         """
-        
-        auth_header = request.META.get('HTTP_AUTHORIZATION')
+        # ✅ ADD DEBUG LOGGING
+        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        print(f"🔍 Auth header: {auth_header[:30]}..." if auth_header else "❌ No auth header")
+    
         if auth_header and auth_header.startswith('Bearer '):
-            return auth_header[7:]
+            token = auth_header[7:]
+            return token
         
         return None
     

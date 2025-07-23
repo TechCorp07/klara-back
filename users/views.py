@@ -1,4 +1,5 @@
 # users/views.py
+import hashlib
 import pyotp
 import qrcode
 import io
@@ -24,7 +25,7 @@ from wearables.models import WearableIntegration, WearableMeasurement
 from medication.models import AdherenceRecord
 
 from .models import (
-    AuditTrail, EmergencyAccess, ConsentRecord, HIPAADocument, PharmaceuticalTenant, ResearchConsent, TwoFactorDevice, 
+    AuditTrail, EmergencyAccess, ConsentRecord, HIPAADocument, PharmaceuticalTenant, RefreshToken, ResearchConsent, TwoFactorDevice, 
     PatientProfile, ProviderProfile, PharmcoProfile, CaregiverProfile, 
     ResearcherProfile, ComplianceProfile, CaregiverRequest, UserSession
 )
@@ -213,6 +214,11 @@ class UserViewSet(BaseViewSet):
         Refresh JWT access token using refresh token.
         Requires valid authentication (even if token is near expiry).
         """
+        # ✅ DEBUG: Check authentication status
+        print(f"🔍 Refresh request - User authenticated: {request.user.is_authenticated}")
+        print(f"🔍 User: {request.user}")
+        print(f"🔍 Has JWT payload: {hasattr(request, 'jwt_payload')}")
+        
         # Check if user is authenticated (but allow near-expired tokens)
         if not request.user or not request.user.is_authenticated:
             return Response({
