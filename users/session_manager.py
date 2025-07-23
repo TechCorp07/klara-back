@@ -10,6 +10,7 @@ from django.db import transaction
 from django.contrib.auth import get_user_model
 from cryptography.fernet import Fernet
 import logging
+import secrets
 
 from .models import UserSession, RefreshToken, PharmaceuticalTenant, AuditTrail
 
@@ -31,6 +32,47 @@ class SessionManager:
     EMERGENCY_SESSION_TIMEOUT = timedelta(hours=2)   # Emergency access shorter timeout
     MAX_CONCURRENT_SESSIONS = 5                      # Prevent session abuse
     
+    @classmethod
+    def create_session_token(cls, session: UserSession, duration_hours: int = 1) -> str:
+        """Create a session-based token for ongoing authentication."""
+        # Generate secure session token
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        # Store in session
+        session.session_token_hash = token_hash
+        session.session_token_expires = timezone.now() + timedelta(hours=duration_hours)
+        session.save(update_fields=['session_token_hash', 'session_token_expires'])
+        
+        return raw_token
+
+    @classmethod
+    def validate_session_token(cls, token: str) -> tuple[bool, Optional[UserSession]]:
+        """Validate session token and return session if valid."""
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        
+        try:
+            session = UserSession.objects.select_related('user').get(
+                session_token_hash=token_hash,
+                is_active=True,
+                session_token_expires__gt=timezone.now()
+            )
+            return True, session
+        except UserSession.DoesNotExist:
+            return False, None
+
+    @classmethod
+    def refresh_session_token(cls, current_token: str, duration_hours: int = 1) -> tuple[bool, Optional[str]]:
+        """Refresh session token with new validity."""
+        is_valid, session = cls.validate_session_token(current_token)
+        
+        if not is_valid or not session:
+            return False, None
+        
+        # Create new session token
+        new_token = cls.create_session_token(session, duration_hours=duration_hours)
+        return True, new_token
+
     @classmethod
     def create_session(cls, user: User, ip_address: str, user_agent: str, 
                       pharmaceutical_tenant: Optional[PharmaceuticalTenant] = None,

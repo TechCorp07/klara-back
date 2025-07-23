@@ -272,6 +272,25 @@ class UserViewSet(BaseViewSet):
         
         return Response(response_data, status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=['post'], permission_classes=[], authentication_classes=[])
+    def refresh_session(self, request):
+        """Refresh session token - simpler than JWT refresh."""
+        session_token = request.data.get('session_token')
+        
+        if not session_token:
+            return Response({'error': 'Session token required'}, status=400)
+        
+        success, new_token = SessionManager.refresh_session_token(session_token)
+        
+        if not success:
+            return Response({'error': 'Invalid or expired session'}, status=401)
+        
+        return Response({
+            'session_token': new_token,
+            'expires_in': 60 * 60,  # 1 hour
+            'token_type': 'Session'
+        })
+        
     @action(detail=False, methods=['get'])
     def session_health(self, request):
         """
@@ -396,6 +415,8 @@ class UserViewSet(BaseViewSet):
             # Generate JWT access token
             access_token = JWTAuthenticationManager.create_access_token(user, session)
             
+            session_token = SessionManager.create_session_token(session, duration_hours=1)
+            
             # Generate refresh token
             refresh_token = JWTAuthenticationManager.create_refresh_token(
                 user, session, ip_address
@@ -413,6 +434,11 @@ class UserViewSet(BaseViewSet):
             'refresh_token': refresh_token._raw_token,  # Raw token for client storage
             'token_type': 'Bearer',
             'expires_in': JWTAuthenticationManager.ACCESS_TOKEN_LIFETIME.total_seconds(),
+            
+            # Add session token info
+            'session_token': session_token,
+            'session_expires_in': 60 * 60,  # 1 hour
+
             'user': user_serializer.data,
             'session': {
                 'session_id': str(session.session_id),

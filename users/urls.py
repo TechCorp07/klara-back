@@ -36,6 +36,7 @@ urlpatterns = [
     path('auth/logout/', UserViewSet.as_view({'post': 'logout'}), name='jwt-logout'),
     path('auth/refresh/', UserViewSet.as_view({'post': 'refresh_token'}), name='jwt-refresh'),
     path('auth/me/', UserViewSet.as_view({'get': 'me'}), name='current-user'),
+    path('auth/refresh-session/', UserViewSet.as_view({'post': 'refresh_session'}), name='session-refresh'),
     
     # Enhanced authentication endpoints
     path('auth/check-status/', UserViewSet.as_view({'get': 'check_status'}), name='check-status'),

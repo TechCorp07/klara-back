@@ -50,10 +50,12 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
             '/api/docs/',
             '/api/schema/',
         ]
-        # ✅ ADD DEBUG CHECK
+        # ✅ UPDATE THIS SECTION
         if request.path in skip_paths:
             print(f"✅ Skipping JWT auth for: {request.path}")
-            return None
+            # Set AnonymousUser so DRF doesn't try to authenticate
+            request.user = AnonymousUser()
+            return None  # This is key - let DRF handle it
         
         print(f"🔍 Checking auth for: {request.path}")
         
@@ -80,9 +82,15 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
             print("❌ No token found")
             return self._create_auth_required_response("Authentication token required")
         
-        # Validate JWT token locally (no database calls for basic validation)
-        is_valid, payload, error_message = JWTAuthenticationManager.validate_access_token(jwt_token)
-        
+        # Handle session token validation
+        if jwt_token == 'session_validated':
+            payload = request.session_auth_payload
+            is_valid = True
+            error_message = None
+        else:
+            # Regular JWT validation
+            is_valid, payload, error_message = JWTAuthenticationManager.validate_access_token(jwt_token)
+            
         # ✅ ADD DEBUG LOGGING
         print(f"🔍 Token validation result: valid={is_valid}, error={error_message}")
     
@@ -124,17 +132,37 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
     
     def _extract_jwt_token(self, request) -> Optional[str]:
         """
-        Extract JWT token from Authorization header ONLY.
-        NO cookie fallback for tab-specific authentication.
+        Extract JWT token from Authorization header or session token.
         """
         # ✅ ADD DEBUG LOGGING
         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
         print(f"🔍 Auth header: {auth_header[:30]}..." if auth_header else "❌ No auth header")
-    
+        # Check for Bearer JWT token first
         if auth_header and auth_header.startswith('Bearer '):
             token = auth_header[7:]
             return token
         
+        # Check for Session token
+        elif auth_header and auth_header.startswith('Session '):
+            session_token = auth_header[8:]
+            # Validate session token and convert to JWT-like behavior
+            is_valid, session = SessionManager.validate_session_token(session_token)
+            if is_valid and session:
+                # Create temporary JWT payload for compatibility
+                temp_payload = {
+                    'user_id': session.user.id,
+                    'session_id': str(session.session_id),
+                    'email': session.user.email,
+                    'role': session.user.role,
+                    'exp': int(session.session_token_expires.timestamp()),
+                    'iat': int(session.created_at.timestamp()),
+                    'permissions': JWTAuthenticationManager._get_user_permissions(session.user),
+                    'primary_tenant_id': str(session.pharmaceutical_tenant.id) if session.pharmaceutical_tenant else None,
+                }
+                # Store the payload for downstream processing
+                request.session_auth_payload = temp_payload
+                return 'session_validated'  # Special marker for session auth
+            
         return None
     
     def _get_user_from_payload(self, payload: dict) -> Optional[User]:
