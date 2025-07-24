@@ -2497,7 +2497,31 @@ class PatientViewSet(viewsets.ModelViewSet):
 
             # Get community groups (chat groups)
             community_groups = []
-            # TODO: Implement when chat/community system is added
+            try:
+                from community.models import CommunityMembership
+                
+                # Get user's community groups
+                user_memberships = CommunityMembership.objects.filter(
+                    user=user,
+                    status='approved'
+                ).select_related('group')[:5]
+                
+                for membership in user_memberships:
+                    group = membership.group
+                    community_groups.append({
+                        "id": group.id,
+                        "name": group.name,
+                        "description": group.description,
+                        "group_type": group.group_type,
+                        "member_count": group.member_count,
+                        "is_member": True,
+                        "last_activity": group.updated_at.isoformat(),
+                        "unread_messages": 0  # Implement based on your needs
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error getting community groups: {str(e)}")
+                community_groups = []
 
             dashboard_data = {
                 "patient_info": patient_info,

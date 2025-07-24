@@ -1,3 +1,4 @@
+from community import models
 from rest_framework import viewsets, permissions, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -102,15 +103,24 @@ class CommunityGroupViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
-            # Return an empty queryset for swagger schema generation
             return self.queryset.model.objects.none()
         
         user = self.request.user
+        queryset = super().get_queryset()
+        
+        if user.role == 'patient':
+            return queryset.filter(
+                models.Q(is_private=False) | 
+                models.Q(memberships__user=user, memberships__status='approved')
+            ).distinct()
+            
         if user.is_staff or getattr(user, 'role', None) == 'admin':
             return CommunityGroup.objects.all()
         return CommunityGroup.objects.filter(
             Q(is_private=False) | Q(memberships__user=user, memberships__status='approved')
         ).distinct()
+        
+        return queryset
     
     @action(detail=True, methods=['post'])
     def join(self, request, pk=None):
