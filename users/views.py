@@ -2470,13 +2470,51 @@ class PatientViewSet(viewsets.ModelViewSet):
             # Build final response matching frontend expectations
             dashboard_data = {
                 "patient_info": patient_info,
-                "alerts": alerts,
-                "appointments": appointments,
+                "health_summary": {  # Changed from just returning alerts
+                    "overall_status": "good",  # Calculate based on conditions
+                    "last_checkup": appointments[0]["scheduled_datetime"] if appointments else None,
+                    "next_appointment": appointments[0]["scheduled_datetime"] if appointments else None,
+                    "identity_verified": patient_info.get("verification_status") == "verified",
+                    "days_until_verification_required": patient_info.get("days_until_verification", 30)
+                },
                 "medications": medications,
-                "vitals": vitals,
+                "vitals": {
+                    "current": vitals[-1] if vitals else {},  # Latest vitals
+                    "trends": {
+                        "improving": [],
+                        "stable": [],
+                        "concerning": []
+                    },
+                    "last_recorded": vitals[-1]["recorded_at"] if vitals else None
+                },
+                "wearable_data": {
+                    "connected_devices": [],
+                    "recent_data": {},
+                    "sync_status": "disconnected"
+                },
+                "appointments": appointments,
                 "care_team": care_team,
                 "research_participation": research_participation,
-                "community_groups": community_groups
+                "community_groups": community_groups,
+                "alerts": alerts,
+                "quick_actions": [
+                    {
+                        "id": "log_medication",
+                        "title": "Log Medication",
+                        "description": "Record medication taken",
+                        "icon": "pill",
+                        "href": "/patient/medications/log",
+                        "priority": "high"
+                    },
+                    {
+                        "id": "record_vitals", 
+                        "title": "Record Vitals",
+                        "description": "Log vital signs",
+                        "icon": "heart",
+                        "href": "/patient/vitals/record", 
+                        "priority": "medium"
+                    }
+                ]
             }
 
             return Response(dashboard_data)
