@@ -2312,7 +2312,10 @@ class PatientViewSet(viewsets.ModelViewSet):
                 pass
             
             # Get appointments
-            appointments = []
+            appointments = {
+                "upcoming": [],
+                "recent": []
+            }
             try:
                 from telemedicine.models import Appointment
                 upcoming_appointments = Appointment.objects.filter(
@@ -2322,15 +2325,36 @@ class PatientViewSet(viewsets.ModelViewSet):
                 ).order_by('scheduled_time')[:5]
                 
                 for apt in upcoming_appointments:
-                    appointments.append({
+                    appointments["upcoming"].append({
                         "id": apt.id,
-                        "provider": apt.provider.get_full_name() if apt.provider else "Unknown",
                         "date": apt.scheduled_time.date().isoformat(),
                         "time": apt.scheduled_time.time().isoformat(),
-                        "type": apt.appointment_type,
-                        "status": apt.status
+                        "provider_name": apt.provider.get_full_name() if apt.provider else "Unknown",
+                        "provider_specialty": getattr(apt.provider, 'specialty', 'General Medicine') if apt.provider else "General Medicine",
+                        "appointment_type": apt.get_appointment_type_display() if hasattr(apt, 'get_appointment_type_display') else apt.appointment_type,
+                        "is_telemedicine": getattr(apt, 'is_telemedicine', False),
+                        "location": getattr(apt, 'location', None),
+                        "preparation_notes": getattr(apt, 'notes', None),
+                        "can_reschedule": True,
+                        "can_cancel": True
                     })
-            except:
+                    
+                recent_apts = Appointment.objects.filter(
+                    patient=user,
+                    scheduled_time__lt=timezone.now(),
+                    status__in=['completed']
+                ).order_by('-scheduled_time')[:3]
+            
+                for apt in recent_apts:
+                    appointments["recent"].append({
+                        "date": apt.scheduled_time.date().isoformat(),
+                        "provider": apt.provider.get_full_name() if apt.provider else "Unknown",
+                        "summary": getattr(apt, 'notes', 'Consultation completed'),
+                        "follow_up_required": getattr(apt, 'follow_up_required', False)
+                    })
+                
+            except Exception as e:
+                logger.error(f"Error getting appointments data: {str(e)}")
                 pass
             
             try:
@@ -2476,7 +2500,7 @@ class PatientViewSet(viewsets.ModelViewSet):
 
             dashboard_data = {
                 "patient_info": patient_info,
-                "health_summary": { 
+                "health_summary": {
                     "overall_status": "good",
                     "last_checkup": appointments[0]["scheduled_datetime"] if appointments else None,
                     "next_appointment": appointments[0]["scheduled_datetime"] if appointments else None,
