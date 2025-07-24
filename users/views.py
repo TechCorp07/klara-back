@@ -23,6 +23,7 @@ from django.contrib.auth.models import AnonymousUser
 from rest_framework.pagination import PageNumberPagination
 from wearables.models import WearableIntegration, WearableMeasurement          
 from medication.models import AdherenceRecord
+from healthcare.models import MedicalRecord, FamilyHistory
 
 from .models import (
     AuditTrail, EmergencyAccess, ConsentRecord, HIPAADocument, PharmaceuticalTenant, RefreshToken, ResearchConsent, TwoFactorDevice, 
@@ -3021,8 +3022,106 @@ class PatientViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Error generating health alerts for user {user.id}: {str(e)}")
             return []
-
-    def _get_quick_actions(self, user, patient_profile):
+    
+    @action(detail=False, methods=['get'], url_path='family-history')
+    def family_history(self, request):
+        """Get patient's family medical history."""
+        try:
+            # Get family history from healthcare app
+            from healthcare.serializers import FamilyHistorySerializer
+            
+            # Get patient's medical record
+            medical_record = getattr(request.user, 'medical_record', None)
+            if not medical_record:
+                return Response({
+                    'immediate_family': [],
+                    'extended_family': []
+                })
+            
+            # Get family history records
+            family_history = FamilyHistory.objects.filter(
+                medical_record=medical_record
+            ).order_by('relationship')
+            
+            # Serialize the data
+            serializer = FamilyHistorySerializer(family_history, many=True)
+            
+            # Group by immediate vs extended family
+            immediate_family = []
+            extended_family = []
+            
+            immediate_relationships = ['mother', 'father', 'sibling', 'child', 'spouse']
+            
+            for record in serializer.data:
+                family_member = {
+                    'relationship': record['relationship'],
+                    'conditions': [record['condition']] if record['condition'] else [],
+                    'age_of_onset': record.get('age_of_onset'),
+                    'notes': record.get('notes', '')
+                }
+                
+                if record['relationship'].lower() in immediate_relationships:
+                    immediate_family.append(family_member)
+                else:
+                    extended_family.append(family_member)
+            
+            return Response({
+                'immediate_family': immediate_family,
+                'extended_family': extended_family
+            })
+            
+        except Exception as e:
+            # Log the error for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error fetching family history for user {request.user.id}: {str(e)}")
+            
+            # Return empty structure to prevent frontend errors
+            return Response({
+                'immediate_family': [],
+                'extended_family': []
+            })
+            
+    @action(detail=False, methods=['post'], url_path='family-history')
+    def update_family_history(self, request):
+        """Update patient's family medical history."""
+        try:
+            # Get or create medical record
+            medical_record, created = MedicalRecord.objects.get_or_create(
+                patient=request.user,
+                defaults={'primary_physician': None}
+            )
+            
+            family_member_data = request.data
+            
+            # Create or update family history record
+            family_history, created = FamilyHistory.objects.update_or_create(
+                medical_record=medical_record,
+                relationship=family_member_data['relationship'],
+                defaults={
+                    'condition': family_member_data.get('conditions', [''])[0] if family_member_data.get('conditions') else '',
+                    'age_of_onset': family_member_data.get('age_of_onset'),
+                    'notes': family_member_data.get('notes', ''),
+                    'is_rare_condition': family_member_data.get('is_rare_condition', False),
+                    'is_deceased': family_member_data.get('is_deceased', False)
+                }
+            )
+            
+            return Response({
+                'message': 'Family history updated successfully',
+                'family_member_id': family_history.id
+            }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error updating family history for user {request.user.id}: {str(e)}")
+            
+            return Response({
+                'error': 'Failed to update family history'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _get_quick_actions(self):
         """Get quick action items for the dashboard."""
         actions = [
             {
