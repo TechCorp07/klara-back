@@ -511,9 +511,6 @@ class UserViewSet(BaseViewSet):
     def me(self, request):
         """
         Get current user information with pharmaceutical tenant context.
-        
-        Enhanced to include session context and pharmaceutical tenant information
-        for the new multi-tenant architecture.
         """
         user = request.user
         serializer = UserSerializer(user)
@@ -559,12 +556,16 @@ class UserViewSet(BaseViewSet):
         
         if hasattr(request, 'session_id') and request.session_id:
             session_context = SessionManager.get_session_context(request.session_id)
-            user_data['session_context'] = session_context
+            if session_context:
+                response_data['session'] = session_context
         
-        # ⭐ Include permissions directly in user data
-        user_data['permissions'] = JWTAuthenticationManager._get_user_permissions(user)
+        permissions = JWTAuthenticationManager._get_user_permissions(user)
+        response_data = {
+            'user': user_data,
+            'permissions': permissions,
+        }
         
-        return Response(user_data)
+        return Response(response_data)
 
     @action(detail=False, methods=['post'])
     def emergency_access(self, request):
