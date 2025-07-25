@@ -109,12 +109,6 @@ urlpatterns = [
     path('patient/fhir/export/', PatientViewSet.as_view({'post': 'export_fhir_data'}), name='patient-fhir-export'),
     path('patient/fhir/import-request/', PatientViewSet.as_view({'post': 'request_fhir_import'}), name='patient-fhir-import'),
     
-    # Family history endpoints
-    path('patient/family-history/', PatientViewSet.as_view({'get': 'family_history', 'post': 'update_family_history'}), name='patient-family-history'),
-    path('patient/family-history/genetic-analysis/', PatientViewSet.as_view({'get': 'genetic_analysis', 'post': 'genetic_analysis'}), name='patient-genetic-analysis'),
-    path('patient/family-history/genetic-analysis/history/', PatientViewSet.as_view({'get': 'genetic_analysis_history'}), name='patient-genetic-analysis-history'),
-    path('patient/family-history/genetic-analysis/regenerate/', PatientViewSet.as_view({'post': 'regenerate_genetic_analysis'}), name='patient-genetic-analysis-regenerate'),
-
     # Medication reminders endpoints
     path('patient/profile/medication-reminders/', PatientProfileViewSet.as_view({'patch': 'update_medication_reminders'}), name='patient-medication-reminders'),
     
