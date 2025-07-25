@@ -19,11 +19,12 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
 from drf_yasg.utils import swagger_auto_schema
-from django.contrib.auth.models import AnonymousUser
 from rest_framework.pagination import PageNumberPagination
 from wearables.models import WearableIntegration, WearableMeasurement          
 from medication.models import AdherenceRecord
-from healthcare.models import MedicalRecord, FamilyHistory
+from healthcare.models import MedicalRecord, FamilyHistory, GeneticAnalysis
+from healthcare.serializers import GeneticAnalysisSerializer, GeneticAnalysisCreateSerializer
+from healthcare.services.genetic_analysis_service import GeneticAnalysisService
 
 from .models import (
     AuditTrail, EmergencyAccess, ConsentRecord, HIPAADocument, PharmaceuticalTenant, RefreshToken, ResearchConsent, TwoFactorDevice, 
@@ -506,66 +507,87 @@ class UserViewSet(BaseViewSet):
             )
         
         return Response({'detail': 'Successfully logged out.'})
-
+    
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def me(self, request):
         """
         Get current user information with pharmaceutical tenant context.
+        
+        Enhanced to include session context and pharmaceutical tenant information
+        for the new multi-tenant architecture.
         """
-        user = request.user
-        serializer = UserSerializer(user)
-        user_data = serializer.data
-        
-        # Add role-specific profile
-        profile_map = {
-            'patient': ('patient_profile', PatientProfileSerializer),
-            'provider': ('provider_profile', ProviderProfileSerializer),
-            'pharmco': ('pharmco_profile', PharmcoProfileSerializer),
-            'caregiver': ('caregiver_profile', CaregiverProfileSerializer),
-            'researcher': ('researcher_profile', ResearcherProfileSerializer),
-            'compliance': ('compliance_profile', ComplianceProfileSerializer),
-        }
-        
-        user_data['pharmaceutical_context'] = {
-            'primary_tenant': user.primary_pharmaceutical_tenant.name if user.primary_pharmaceutical_tenant else None,
-            'available_tenants': [
-                {
-                    'id': str(tenant.id),
-                    'name': tenant.name,
-                    'slug': tenant.slug,
-                    } for tenant in user.pharmaceutical_tenants.all()
-                ],
+        try:
+            user = request.user
+            serializer = UserSerializer(user)
+            user_data = serializer.data
+            
+            # Add role-specific profile
+            profile_map = {
+                'patient': ('patient_profile', PatientProfileSerializer),
+                'provider': ('provider_profile', ProviderProfileSerializer),
+                'pharmco': ('pharmco_profile', PharmcoProfileSerializer),
+                'caregiver': ('caregiver_profile', CaregiverProfileSerializer),
+                'researcher': ('researcher_profile', ResearcherProfileSerializer),
+                'compliance': ('compliance_profile', ComplianceProfileSerializer),
             }
-        
-        if user.role in profile_map:
-            profile_attr, profile_serializer = profile_map[user.role]
-            if hasattr(user, profile_attr):
-                profile = getattr(user, profile_attr)
-                user_data['profile'] = profile_serializer(profile).data
-        
-        # Add pending caregiver requests for patients
-        if user.role == 'patient':
-            pending_requests = CaregiverRequest.objects.filter(
-                patient=user,
-                status='PENDING'
-            )
-            if pending_requests.exists():
-                user_data['pending_caregiver_requests'] = CaregiverRequestSerializer(
-                    pending_requests, many=True
-                ).data
-        
-        if hasattr(request, 'session_id') and request.session_id:
-            session_context = SessionManager.get_session_context(request.session_id)
-            if session_context:
-                response_data['session'] = session_context
-        
-        permissions = JWTAuthenticationManager._get_user_permissions(user)
-        response_data = {
-            'user': user_data,
-            'permissions': permissions,
-        }
-        
-        return Response(response_data)
+            
+            user_data['pharmaceutical_context'] = {
+                'primary_tenant': user.primary_pharmaceutical_tenant.name if user.primary_pharmaceutical_tenant else None,
+                'available_tenants': [
+                    {
+                        'id': str(tenant.id),
+                        'name': tenant.name,
+                        'slug': tenant.slug,
+                        } for tenant in user.pharmaceutical_tenants.all()
+                    ],
+                }
+            
+            if user.role in profile_map:
+                profile_attr, profile_serializer = profile_map[user.role]
+                if hasattr(user, profile_attr):
+                    profile = getattr(user, profile_attr)
+                    user_data['profile'] = profile_serializer(profile).data
+            
+            # Add pending caregiver requests for patients
+            if user.role == 'patient':
+                pending_requests = CaregiverRequest.objects.filter(
+                    patient=user,
+                    status='PENDING'
+                )
+                if pending_requests.exists():
+                    user_data['pending_caregiver_requests'] = CaregiverRequestSerializer(
+                        pending_requests, many=True
+                    ).data
+            
+            # ✅ Extract permissions from user (moved out of user_data to top level)
+            permissions = JWTAuthenticationManager._get_user_permissions(user)
+            
+            # ✅ Build response with same structure as login endpoint
+            response_data = {
+                'user': user_data,
+                'permissions': permissions,
+            }
+            
+            # ✅ Add session context at top level if available
+            if hasattr(request, 'session_id') and request.session_id:
+                session_context = SessionManager.get_session_context(request.session_id)
+                if session_context:
+                    response_data['session'] = session_context
+                    
+            # Add pharmaceutical context at top level
+            if hasattr(request, 'pharmaceutical_tenant_id') and request.pharmaceutical_tenant_id:
+                response_data['pharmaceutical_context'] = {
+                    'tenant_id': request.pharmaceutical_tenant_id,
+                    'tenant_name': request.user.primary_pharmaceutical_tenant.name if request.user.primary_pharmaceutical_tenant else None
+                }
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            logger.error(f"Error in me endpoint: {str(e)}")
+            return Response({
+                'detail': 'Failed to retrieve user information.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['post'])
     def emergency_access(self, request):
@@ -3146,6 +3168,136 @@ class PatientViewSet(viewsets.ModelViewSet):
                 'error': 'Failed to update family history'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
+    @action(detail=False, methods=['get', 'post'], url_path='family-history/genetic-analysis')
+    def genetic_analysis(self, request):
+        """
+        Get or generate genetic analysis based on family history.
+        
+        GET: Retrieve existing genetic analysis
+        POST: Generate new genetic analysis from family history
+        """
+        try:
+            if request.method == 'GET':
+                # Get the latest genetic analysis for the patient
+                try:
+                    analysis = GeneticAnalysis.objects.filter(
+                        patient=request.user
+                    ).latest('analysis_date')
+                    
+                    serializer = GeneticAnalysisSerializer(analysis)
+                    return Response(serializer.data)
+                    
+                except GeneticAnalysis.DoesNotExist:
+                    return Response({
+                        'detail': 'No genetic analysis found. Generate one first.'
+                    }, status=status.HTTP_404_NOT_FOUND)
+            
+            elif request.method == 'POST':
+                # Generate new genetic analysis
+                try:
+                    # Check if patient has family history data
+                    medical_record = getattr(request.user, 'medical_record', None)
+                    if not medical_record:
+                        return Response({
+                            'error': 'No medical record found. Please contact support.'
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    # Check for existing family history
+                    from healthcare.models import FamilyHistory
+                    family_history_count = FamilyHistory.objects.filter(
+                        medical_record=medical_record
+                    ).count()
+                    
+                    if family_history_count == 0:
+                        return Response({
+                            'error': 'No family history data available. Please add family history information first.',
+                            'suggestion': 'Add family medical history to enable genetic analysis.'
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    # Generate the analysis
+                    analysis = GeneticAnalysisService.generate_analysis(request.user)
+                    
+                    # Log the generation
+                    self.log_security_event(
+                        user=request.user,
+                        event_type="GENETIC_ANALYSIS_GENERATED",
+                        description="Patient generated genetic analysis from family history",
+                        request=request
+                    )
+                    
+                    serializer = GeneticAnalysisSerializer(analysis)
+                    return Response(serializer.data, status=status.HTTP_201_CREATED)
+                    
+                except ValueError as e:
+                    return Response({
+                        'error': str(e)
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                except Exception as e:
+                    logger.error(f"Error generating genetic analysis for user {request.user.id}: {str(e)}")
+                    return Response({
+                        'error': 'Failed to generate genetic analysis. Please try again later.'
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        except Exception as e:
+            logger.error(f"Genetic analysis endpoint error for user {request.user.id}: {str(e)}")
+            return Response({
+                'error': 'An unexpected error occurred.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='family-history/genetic-analysis/history')
+    def genetic_analysis_history(self, request):
+        """Get all genetic analyses for the patient."""
+        try:
+            analyses = GeneticAnalysis.objects.filter(
+                patient=request.user
+            ).order_by('-analysis_date')
+            
+            serializer = GeneticAnalysisSerializer(analyses, many=True)
+            return Response({
+                'count': analyses.count(),
+                'results': serializer.data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error fetching genetic analysis history for user {request.user.id}: {str(e)}")
+            return Response({
+                'error': 'Failed to retrieve genetic analysis history.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], url_path='family-history/genetic-analysis/regenerate')
+    def regenerate_genetic_analysis(self, request):
+        """Regenerate genetic analysis with updated family history."""
+        try:
+            # Get the latest analysis
+            try:
+                latest_analysis = GeneticAnalysis.objects.filter(
+                    patient=request.user
+                ).latest('analysis_date')
+            except GeneticAnalysis.DoesNotExist:
+                # No existing analysis, generate new one
+                return self.genetic_analysis(request)
+            
+            # Update the analysis with fresh data
+            updated_analysis = GeneticAnalysisService.update_analysis(latest_analysis)
+            
+            # Log the regeneration
+            self.log_security_event(
+                user=request.user,
+                event_type="GENETIC_ANALYSIS_REGENERATED",
+                description="Patient regenerated genetic analysis with updated family history",
+                request=request
+            )
+            
+            serializer = GeneticAnalysisSerializer(updated_analysis)
+            return Response(serializer.data)
+            
+        except Exception as e:
+            logger.error(f"Error regenerating genetic analysis for user {request.user.id}: {str(e)}")
+            return Response({
+                'error': 'Failed to regenerate genetic analysis.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     def _get_quick_actions(self):
         """Get quick action items for the dashboard."""
         actions = [
