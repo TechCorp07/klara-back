@@ -3128,7 +3128,7 @@ class PatientViewSet(viewsets.ModelViewSet):
                 'immediate_family': [],
                 'extended_family': []
             })
-            
+
     @action(detail=False, methods=['post'], url_path='family-history')
     def update_family_history(self, request):
         """Update patient's family medical history."""
@@ -3167,7 +3167,7 @@ class PatientViewSet(viewsets.ModelViewSet):
             return Response({
                 'error': 'Failed to update family history'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
     @action(detail=False, methods=['get', 'post'], url_path='family-history/genetic-analysis')
     def genetic_analysis(self, request):
         """
@@ -3176,33 +3176,47 @@ class PatientViewSet(viewsets.ModelViewSet):
         GET: Retrieve existing genetic analysis
         POST: Generate new genetic analysis from family history
         """
+        
         try:
             if request.method == 'GET':
-                # Get the latest genetic analysis for the patient
                 try:
-                    analysis = GeneticAnalysis.objects.filter(
-                        patient=request.user
-                    ).latest('analysis_date')
+                    analyses_queryset = GeneticAnalysis.objects.filter(patient=request.user)
                     
-                    serializer = GeneticAnalysisSerializer(analysis)
-                    return Response(serializer.data)
+                    analyses_count = analyses_queryset.count()
                     
+                    if analyses_count > 0:
+                        # Now get the latest analysis
+                        analysis = analyses_queryset.latest('analysis_date')
+                        serializer = GeneticAnalysisSerializer(analysis)
+                        response_data = serializer.data
+                        return Response(response_data)
+                    else:
+                        return Response({
+                            'detail': 'No genetic analysis found. Generate one first.'
+                        }, status=status.HTTP_404_NOT_FOUND)
+                        
                 except GeneticAnalysis.DoesNotExist:
+                    return Response({
+                        'detail': 'No genetic analysis found. Generate one first.'
+                    }, status=status.HTTP_404_NOT_FOUND)
+                    
+                except Exception as inner_e:
+                    import traceback
+                    traceback.print_exc()
+                    
                     return Response({
                         'detail': 'No genetic analysis found. Generate one first.'
                     }, status=status.HTTP_404_NOT_FOUND)
             
             elif request.method == 'POST':
-                # Generate new genetic analysis
                 try:
-                    # Check if patient has family history data
-                    medical_record = getattr(request.user, 'medical_record', None)
+                    medical_record = request.user.medical_records.first()
+                    
                     if not medical_record:
                         return Response({
                             'error': 'No medical record found. Please contact support.'
                         }, status=status.HTTP_400_BAD_REQUEST)
-                    
-                    # Check for existing family history
+
                     from healthcare.models import FamilyHistory
                     family_history_count = FamilyHistory.objects.filter(
                         medical_record=medical_record
@@ -3214,10 +3228,8 @@ class PatientViewSet(viewsets.ModelViewSet):
                             'suggestion': 'Add family medical history to enable genetic analysis.'
                         }, status=status.HTTP_400_BAD_REQUEST)
                     
-                    # Generate the analysis
                     analysis = GeneticAnalysisService.generate_analysis(request.user)
                     
-                    # Log the generation
                     self.log_security_event(
                         user=request.user,
                         event_type="GENETIC_ANALYSIS_GENERATED",
@@ -3226,20 +3238,28 @@ class PatientViewSet(viewsets.ModelViewSet):
                     )
                     
                     serializer = GeneticAnalysisSerializer(analysis)
+                    
                     return Response(serializer.data, status=status.HTTP_201_CREATED)
                     
                 except ValueError as e:
+                    
                     return Response({
                         'error': str(e)
                     }, status=status.HTTP_400_BAD_REQUEST)
                     
                 except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    
                     logger.error(f"Error generating genetic analysis for user {request.user.id}: {str(e)}")
                     return Response({
                         'error': 'Failed to generate genetic analysis. Please try again later.'
                     }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            
             logger.error(f"Genetic analysis endpoint error for user {request.user.id}: {str(e)}")
             return Response({
                 'error': 'An unexpected error occurred.'
