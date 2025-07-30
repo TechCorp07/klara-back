@@ -755,6 +755,7 @@ class ConsentRecord(models.Model):
     CONSENT_TYPES = [
         ('TERMS_OF_SERVICE', 'Terms of Service'),
         ('PRIVACY_NOTICE', 'HIPAA Privacy Notice'),
+        ('TELEMEDICINE_SERVICES', 'Telemedicine Services'),
         ('MEDICATION_MONITORING', 'Medication Adherence Monitoring'),
         ('VITALS_MONITORING', 'Vitals Monitoring'),
         ('RESEARCH_PARTICIPATION', 'Research Participation'),

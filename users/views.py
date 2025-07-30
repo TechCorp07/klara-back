@@ -2233,15 +2233,29 @@ class HIPAADocumentViewSet(BaseViewSet):
             'signed_at': consent.signature_timestamp
         })
 
+
 class PatientViewSet(viewsets.ModelViewSet):
     """ViewSet for patient-specific operations."""
-
+    queryset = User.objects.filter(role='patient')
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated, IsApprovedUser]
+    
+    def get_queryset(self):
+        """Filter to current user only."""
+        if getattr(self, 'swagger_fake_view', False):
+            return self.queryset.model.objects.none()
+        return User.objects.filter(id=self.request.user.id)
+    
     @action(detail=False, methods=['get'], url_path='dashboard')
     def dashboard(self, request):
         """
         Enhanced patient dashboard endpoint with comprehensive rare disease monitoring.
         Returns structured data matching frontend interface requirements.
         """
+        
+        if request.user.role != 'patient':
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+        
         try:
             user = request.user
             
@@ -3575,6 +3589,7 @@ class PatientViewSet(viewsets.ModelViewSet):
         
         return None
 
+
 class ProviderProfileViewSet(BaseViewSet):
     queryset = ProviderProfile.objects.all()
     serializer_class = ProviderProfileSerializer
@@ -3895,7 +3910,7 @@ class ComplianceProfileViewSet(BaseViewSet):
         })
 
 
-class ConsentRecordViewSet(viewsets.ReadOnlyModelViewSet):
+class ConsentRecordViewSet(viewsets.ModelViewSet):
     """ViewSet for viewing consent records."""
     queryset = ConsentRecord.objects.all()
     serializer_class = ConsentRecordSerializer
@@ -3916,6 +3931,43 @@ class ConsentRecordViewSet(viewsets.ReadOnlyModelViewSet):
             return ConsentRecord.objects.all()
         else:
             return ConsentRecord.objects.filter(user=user)
+    
+    def get_permissions(self):
+        """Allow POST for creating consent records."""
+        if self.action == 'create':
+            return [IsAuthenticated()]
+        return super().get_permissions()
+    
+    def create(self, request, *args, **kwargs):
+        """Create a new consent record."""
+        data = request.data.copy()
+        data['user'] = request.user.id
+        data['signature_ip'] = self.get_client_ip(request)
+        data['signature_user_agent'] = self.get_user_agent(request)
+        
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+    
+    def perform_create(self, serializer):
+        """Save the consent record with user."""
+        serializer.save(user=self.request.user)
+    
+    def get_client_ip(self, request):
+        """Get client IP safely accounting for proxies."""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0].strip()
+        else:
+            ip = request.META.get('REMOTE_ADDR', '')
+        return ip
+    
+    def get_user_agent(self, request):
+        """Get user agent from request."""
+        return request.META.get('HTTP_USER_AGENT', '')
     
     @action(detail=False, methods=['get'])
     def audit_trail(self, request):
@@ -3965,6 +4017,7 @@ class ConsentRecordViewSet(viewsets.ReadOnlyModelViewSet):
                 'previous': paginator.get_previous_link(),
             }
         })
+
 
 class AdminViewSet(viewsets.ViewSet):
     """Admin-specific endpoints."""
