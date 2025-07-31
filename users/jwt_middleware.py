@@ -165,7 +165,7 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
             
         return None
     
-    def _get_user_from_payload(self, payload: dict) -> Optional[User]:
+    def _get_user_from_payload(self, payload: dict) -> Optional["User"]:
         """
         Get user object from JWT payload with minimal database impact.
         
