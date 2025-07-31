@@ -1,12 +1,13 @@
 # healthcare/services/dashboard_service.py
 from django.utils import timezone
-from django.db.models import Count, Avg, F
+from django.db.models import Count, Avg, Q, F
 from datetime import timedelta, date
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import logging
 
 from ..models import MedicalRecord, Condition, VitalSign, LabTest, LabResult, Symptom
 from medication.models import Medication, AdherenceRecord
+from wearables.models import WearableMeasurement
 from users.models import User
 
 logger = logging.getLogger(__name__)

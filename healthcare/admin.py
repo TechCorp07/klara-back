@@ -3,7 +3,7 @@ from .models import (
     MedicalRecord, Medication, MedicationIntake, Allergy, Condition, ConditionFlare,
     Symptom, Immunization, LabTest, LabResult, VitalSign, Treatment, FamilyHistory,
     HealthDataConsent, HealthDataAuditLog, EHRIntegration, WearableIntegration,
-    RareConditionRegistry, ReferralNetwork, GeneticAnalysis, GeneticRiskFactor
+    RareConditionRegistry, ReferralNetwork
 )
 
 class MedicationInline(admin.TabularInline):
@@ -248,39 +248,6 @@ class HealthDataAuditLogAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         """Disable deleting audit logs."""
         return False
-
-@admin.register(GeneticAnalysis)
-class GeneticAnalysisAdmin(admin.ModelAdmin):
-    list_display = ['patient', 'analysis_date', 'overall_risk_score', 'status', 'reviewed_by']
-    list_filter = ['status', 'analysis_date', 'counseling_recommended']
-    search_fields = ['patient__email', 'patient__first_name', 'patient__last_name']
-    readonly_fields = ['id', 'analysis_date', 'created_at', 'updated_at']
-    
-    fieldsets = (
-        ('Patient Information', {
-            'fields': ('patient', 'medical_record', 'analysis_date', 'version')
-        }),
-        ('Analysis Results', {
-            'fields': ('overall_risk_score', 'rare_disease_risk', 'oncological_risk', 
-                      'neurological_risk', 'cardiac_risk')
-        }),
-        ('Family History Summary', {
-            'fields': ('total_relatives_analyzed', 'affected_relatives_count', 'generations_analyzed')
-        }),
-        ('Recommendations', {
-            'fields': ('genetic_testing_recommendations', 'screening_recommendations', 
-                      'lifestyle_recommendations', 'counseling_recommended')
-        }),
-        ('Provider Review', {
-            'fields': ('status', 'reviewed_by', 'reviewed_at', 'provider_notes')
-        }),
-    )
-
-@admin.register(GeneticRiskFactor)
-class GeneticRiskFactorAdmin(admin.ModelAdmin):
-    list_display = ['condition', 'risk_level', 'family_history_count', 'analysis']
-    list_filter = ['risk_level', 'inheritance_pattern', 'testing_recommended']
-    search_fields = ['condition', 'analysis__patient__email']
 
 # Register remaining models
 admin.site.register(MedicationIntake)

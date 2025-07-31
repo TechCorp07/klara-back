@@ -278,9 +278,6 @@ CORS_ALLOW_HEADERS = (
     *default_headers,
     "cache-control",
     "x-request-timestamp",
-    "x-auth-type",
-    "x-tab-id",
-    "x-requested-with",
     "pragma",
 )
 

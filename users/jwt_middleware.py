@@ -38,27 +38,11 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
     def process_request(self, request):
         """
         Process incoming request and authenticate user via JWT.
+        
+        This method runs for every request and determines if the user
+        is authenticated without making external API calls, eliminating
+        the bottleneck that was causing race conditions in your current system.
         """
-        # ✅ ADD DEBUG LOGGING
-        print(f"🔍 JWT Middleware processing: {request.path}")
-        
-        # Skip JWT auth for certain paths
-        skip_paths = [
-            '/api/users/auth/login/',
-            '/api/users/auth/register/',
-            '/api/users/auth/refresh/', 
-            '/api/docs/',
-            '/api/schema/',
-        ]
-        # ✅ UPDATE THIS SECTION
-        if request.path in skip_paths:
-            print(f"✅ Skipping JWT auth for: {request.path}")
-            # Set AnonymousUser so DRF doesn't try to authenticate
-            request.user = AnonymousUser()
-            return None  # This is key - let DRF handle it
-        
-        print(f"🔍 Checking auth for: {request.path}")
-        
         if request.path.startswith('/admin/'):
             return None
         
@@ -73,27 +57,12 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
         # Extract JWT token from Authorization header or cookie
         jwt_token = self._extract_jwt_token(request)
         
-        # ✅ ADD DEBUG LOGGING
-        print(f"🔑 Token extracted: {bool(jwt_token)}")
-        if jwt_token:
-            print(f"🔑 Token preview: {jwt_token[:20]}...")
-            
         if not jwt_token:
-            print("❌ No token found")
             return self._create_auth_required_response("Authentication token required")
         
-        # Handle session token validation
-        if jwt_token == 'session_validated':
-            payload = request.session_auth_payload
-            is_valid = True
-            error_message = None
-        else:
-            # Regular JWT validation
-            is_valid, payload, error_message = JWTAuthenticationManager.validate_access_token(jwt_token)
-            
-        # ✅ ADD DEBUG LOGGING
-        print(f"🔍 Token validation result: valid={is_valid}, error={error_message}")
-    
+        # Validate JWT token locally (no database calls for basic validation)
+        is_valid, payload, error_message = JWTAuthenticationManager.validate_access_token(jwt_token)
+        
         if not is_valid:
             # Log authentication failure for security monitoring
             self._log_auth_failure(request, error_message)
@@ -132,40 +101,17 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
     
     def _extract_jwt_token(self, request) -> Optional[str]:
         """
-        Extract JWT token from Authorization header or session token.
+        Extract JWT token from Authorization header ONLY.
+        NO cookie fallback for tab-specific authentication.
         """
-        # ✅ ADD DEBUG LOGGING
-        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-        print(f"🔍 Auth header: {auth_header[:30]}..." if auth_header else "❌ No auth header")
-        # Check for Bearer JWT token first
-        if auth_header and auth_header.startswith('Bearer '):
-            token = auth_header[7:]
-            return token
         
-        # Check for Session token
-        elif auth_header and auth_header.startswith('Session '):
-            session_token = auth_header[8:]
-            # Validate session token and convert to JWT-like behavior
-            is_valid, session = SessionManager.validate_session_token(session_token)
-            if is_valid and session:
-                # Create temporary JWT payload for compatibility
-                temp_payload = {
-                    'user_id': session.user.id,
-                    'session_id': str(session.session_id),
-                    'email': session.user.email,
-                    'role': session.user.role,
-                    'exp': int(session.session_token_expires.timestamp()),
-                    'iat': int(session.created_at.timestamp()),
-                    'permissions': JWTAuthenticationManager._get_user_permissions(session.user),
-                    'primary_tenant_id': str(session.pharmaceutical_tenant.id) if session.pharmaceutical_tenant else None,
-                }
-                # Store the payload for downstream processing
-                request.session_auth_payload = temp_payload
-                return 'session_validated'  # Special marker for session auth
-            
+        auth_header = request.META.get('HTTP_AUTHORIZATION')
+        if auth_header and auth_header.startswith('Bearer '):
+            return auth_header[7:]
+        
         return None
     
-    def _get_user_from_payload(self, payload: dict) -> Optional["User"]:
+    def _get_user_from_payload(self, payload: dict) -> Optional[User]:
         """
         Get user object from JWT payload with minimal database impact.
         
