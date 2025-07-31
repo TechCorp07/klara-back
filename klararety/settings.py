@@ -63,6 +63,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'debug_logging_middleware.DebugLoggingMiddleware',
     'security.middleware.SecurityResponseMiddleware',  
     'users.jwt_middleware.SecurityHeadersMiddleware',  # security headers
     'whitenoise.middleware.WhiteNoiseMiddleware',

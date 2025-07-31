@@ -1336,97 +1336,127 @@ class HealthDataConsentViewSet(BaseHealthcareViewSet):
             'count': consents.count(),
         })
     
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], url_path='update_consent')
     def update_consent(self, request):
         """Update or create a consent record."""
-        consent_type = request.data.get('consent_type')
-        consented = request.data.get('consented', False)
-        authorized_entity_id = request.data.get('authorized_entity_id')
-        
-        if not consent_type:
-            return Response(
-                {"error": "consent_type parameter is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
-        # Validate consent type
-        valid_types = dict(HealthDataConsent.CONSENT_TYPES).keys()
-        if consent_type not in valid_types:
-            return Response(
-                {"error": f"Invalid consent_type. Must be one of: {', '.join(valid_types)}"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Get or create consent
-        data = {
-            'patient': request.user.id,
-            'consent_type': consent_type,
-            'consented': consented
-        }
-        
-        if authorized_entity_id:
-            try:
-                authorized_entity = User.objects.get(id=authorized_entity_id)
-                data['authorized_entity'] = authorized_entity.id
-            except User.DoesNotExist:
-                return Response(
-                    {"error": "Authorized entity not found"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-        
-        # Try to find existing consent
-        try:
-            consent = HealthDataConsent.objects.get(
-                patient=request.user,
-                consent_type=consent_type,
-                authorized_entity_id=authorized_entity_id
-            )
-            serializer = HealthDataConsentSerializer(
-                consent, 
-                data=data,
-                context=self.get_serializer_context()
-            )
-        except HealthDataConsent.DoesNotExist:
-            serializer = HealthDataConsentSerializer(
-                data=data,
-                context=self.get_serializer_context()
-            )
-        
-        # Save the consent
-        serializer.is_valid(raise_exception=True)
-        consent = serializer.save()
-        
-        # Update user consent flags if applicable
-        if consent_type == 'medication_tracking' and hasattr(request.user, 'patient_profile'):
-            request.user.medication_adherence_monitoring_consent = consented
-            request.user.patient_profile.medication_adherence_opt_in = consented
-            request.user.patient_profile.medication_adherence_consent_date = timezone.now() if consented else None
-            request.user.save(update_fields=['medication_adherence_monitoring_consent'])
-            request.user.patient_profile.save(update_fields=['medication_adherence_opt_in', 'medication_adherence_consent_date'])
-        
-        elif consent_type == 'vitals_monitoring' and hasattr(request.user, 'patient_profile'):
-            request.user.vitals_monitoring_consent = consented
-            request.user.patient_profile.vitals_monitoring_opt_in = consented
-            request.user.patient_profile.vitals_monitoring_consent_date = timezone.now() if consented else None
-            request.user.save(update_fields=['vitals_monitoring_consent'])
-            request.user.patient_profile.save(update_fields=['vitals_monitoring_opt_in', 'vitals_monitoring_consent_date'])
-        
-        elif consent_type == 'research' and hasattr(request.user, 'patient_profile'):
-            request.user.research_consent = consented
-            request.user.save(update_fields=['research_consent'])
-            
-            # Update medical record research consent
-            try:
-                medical_record = request.user.medical_records.first()
-                if medical_record:
-                    medical_record.research_participation_consent = consented
-                    medical_record.research_consent_date = timezone.now() if consented else None
-                    medical_record.save(update_fields=['research_participation_consent', 'research_consent_date'])
-            except Exception:
-                pass
-        
-        return Response(HealthDataConsentSerializer(consent, context=self.get_serializer_context()).data)
 
+        print("🚨🚨🚨 UPDATE_CONSENT METHOD CALLED! 🚨🚨🚨")
+        print(f"🚨 Request data: {request.data}")
+
+        try:
+            import logging
+            logger = logging.getLogger('healthcare.consent')
+            
+            logger.info(f"🔍 [update_consent] Request received from user {request.user.id if request.user.is_authenticated else 'Anonymous'}")
+            logger.info(f"🔍 [update_consent] Request method: {request.method}")
+            logger.info(f"🔍 [update_consent] Request path: {request.path}")
+            logger.info(f"🔍 [update_consent] Request headers: {dict(request.headers)}")
+            logger.info(f"🔍 [update_consent] Request data: {request.data}")
+            logger.info(f"🔍 [update_consent] User authenticated: {request.user.is_authenticated}")
+            
+            if request.user.is_authenticated:
+                logger.info(f"🔍 [update_consent] User details: ID={request.user.id}, Role={getattr(request.user, 'role', 'No role')}, Email={request.user.email}")
+            
+            consent_type = request.data.get('consent_type')
+            consented = request.data.get('consented', False)
+            authorized_entity_id = request.data.get('authorized_entity_id')
+            
+            logger.info(f"🔍 [update_consent] Extracted values: consent_type='{consent_type}', consented={consented}, authorized_entity_id={authorized_entity_id}")
+            
+            consent_type = request.data.get('consent_type')
+            consented = request.data.get('consented', False)
+            authorized_entity_id = request.data.get('authorized_entity_id')
+            
+            if not consent_type:
+                return Response(
+                    {"error": "consent_type parameter is required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            # Validate consent type
+            valid_types = dict(HealthDataConsent.CONSENT_TYPES).keys()
+            if consent_type not in valid_types:
+                return Response(
+                    {"error": f"Invalid consent_type. Must be one of: {', '.join(valid_types)}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get or create consent
+            data = {
+                'patient': request.user.id,
+                'consent_type': consent_type,
+                'consented': consented
+            }
+            
+            if authorized_entity_id:
+                try:
+                    authorized_entity = User.objects.get(id=authorized_entity_id)
+                    data['authorized_entity'] = authorized_entity.id
+                except User.DoesNotExist:
+                    return Response(
+                        {"error": "Authorized entity not found"},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            
+            # Try to find existing consent
+            try:
+                consent = HealthDataConsent.objects.get(
+                    patient=request.user,
+                    consent_type=consent_type,
+                    authorized_entity_id=authorized_entity_id
+                )
+                serializer = HealthDataConsentSerializer(
+                    consent, 
+                    data=data,
+                    context=self.get_serializer_context()
+                )
+            except HealthDataConsent.DoesNotExist:
+                serializer = HealthDataConsentSerializer(
+                    data=data,
+                    context=self.get_serializer_context()
+                )
+            
+            # Save the consent
+            serializer.is_valid(raise_exception=True)
+            consent = serializer.save()
+            
+            # Update user consent flags if applicable
+            if consent_type == 'medication_tracking' and hasattr(request.user, 'patient_profile'):
+                request.user.medication_adherence_monitoring_consent = consented
+                request.user.patient_profile.medication_adherence_opt_in = consented
+                request.user.patient_profile.medication_adherence_consent_date = timezone.now() if consented else None
+                request.user.save(update_fields=['medication_adherence_monitoring_consent'])
+                request.user.patient_profile.save(update_fields=['medication_adherence_opt_in', 'medication_adherence_consent_date'])
+            
+            elif consent_type == 'vitals_monitoring' and hasattr(request.user, 'patient_profile'):
+                request.user.vitals_monitoring_consent = consented
+                request.user.patient_profile.vitals_monitoring_opt_in = consented
+                request.user.patient_profile.vitals_monitoring_consent_date = timezone.now() if consented else None
+                request.user.save(update_fields=['vitals_monitoring_consent'])
+                request.user.patient_profile.save(update_fields=['vitals_monitoring_opt_in', 'vitals_monitoring_consent_date'])
+            
+            elif consent_type == 'research' and hasattr(request.user, 'patient_profile'):
+                request.user.research_consent = consented
+                request.user.save(update_fields=['research_consent'])
+                
+                # Update medical record research consent
+                try:
+                    medical_record = request.user.medical_records.first()
+                    if medical_record:
+                        medical_record.research_participation_consent = consented
+                        medical_record.research_consent_date = timezone.now() if consented else None
+                        medical_record.save(update_fields=['research_participation_consent', 'research_consent_date'])
+                except Exception:
+                    pass
+            
+            return Response(HealthDataConsentSerializer(consent, context=self.get_serializer_context()).data)
+        
+        except Exception as e:
+            print(f"🚨 EXCEPTION IN UPDATE_CONSENT: {str(e)}")
+            print(f"🚨 EXCEPTION TYPE: {type(e)}")
+            import traceback
+            print(f"🚨 TRACEBACK: {traceback.format_exc()}")
+            raise
 
 class HealthDataAuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for health data audit logs."""

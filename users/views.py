@@ -1808,7 +1808,7 @@ class PatientProfileViewSet(BaseViewSet):
             description=f"Verified identity for patient: {profile.user.email}",
             request=request
         )
-        
+
         return Response({'detail': 'Identity verified successfully'})
 
     @action(detail=False, methods=['post'])
@@ -1950,13 +1950,13 @@ class PatientProfileViewSet(BaseViewSet):
     def complete_profile(self, request, pk=None):
         """Complete patient profile with additional information."""
         profile = self.get_object()
-        
+
         # Ensure user can only update their own profile
         if profile.user != request.user:
             return Response({
                 'detail': 'You can only update your own profile'
             }, status=status.HTTP_403_FORBIDDEN)
-        
+
         # Update profile fields
         allowed_fields = [
             'medical_id', 'blood_type', 'allergies',
