@@ -4,7 +4,7 @@ from .models import (
     MedicalRecord, Medication, MedicationIntake, Allergy, Condition, ConditionFlare,
     Symptom, Immunization, LabTest, LabResult, VitalSign, Treatment, FamilyHistory,
     HealthDataConsent, HealthDataAuditLog, EHRIntegration, WearableIntegration,
-    RareConditionRegistry, ReferralNetwork
+    RareConditionRegistry, ReferralNetwork, GeneticAnalysis, GeneticRiskFactor
 )
 
 User = get_user_model()
@@ -390,6 +390,102 @@ class MedicalRecordDetailSerializer(MedicalRecordSerializer):
     vital_signs = VitalSignSerializer(many=True, read_only=True)
     treatments = TreatmentSerializer(many=True, read_only=True)
     family_history = FamilyHistorySerializer(many=True, read_only=True)
-    
+
     class Meta(MedicalRecordSerializer.Meta):
         pass
+
+class GeneticRiskFactorSerializer(serializers.ModelSerializer):
+    """Serializer for genetic risk factors."""
+
+    class Meta:
+        model = GeneticRiskFactor
+        fields = [
+            'condition', 'risk_level', 'family_history_count', 'affected_relationships',
+            'inheritance_pattern', 'age_of_onset_range', 'prevention_recommendations',
+            'screening_recommendations', 'relevant_genes', 'testing_available',
+            'testing_recommended', 'created_at'
+        ]
+
+
+class GeneticAnalysisSerializer(serializers.ModelSerializer):
+    """Serializer for genetic analysis."""
+    
+    risk_factors = GeneticRiskFactorSerializer(source='identified_risk_factors', many=True, read_only=True)
+    risk_level_display = serializers.CharField(read_only=True)
+    patient_name = serializers.CharField(source='patient.get_full_name', read_only=True)
+    reviewed_by_name = serializers.CharField(source='reviewed_by.get_full_name', read_only=True)
+    
+    # Restructure the response to match frontend expectations
+    family_history_summary = serializers.SerializerMethodField()
+    recommendations = serializers.SerializerMethodField()
+    risk_score = serializers.SerializerMethodField()
+    known_mutations = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = GeneticAnalysis
+        fields = [
+            'id', 'patient', 'patient_name', 'analysis_date', 'version',
+            'family_history_summary', 'risk_score', 'risk_factors',
+            'known_mutations', 'recommendations', 'status',
+            'reviewed_by', 'reviewed_by_name', 'reviewed_at', 'provider_notes',
+            'risk_level_display', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'patient', 'analysis_date']
+    
+    def get_family_history_summary(self, obj):
+        """Get family history summary in expected format."""
+        return {
+            'total_relatives': obj.total_relatives_analyzed,
+            'affected_relatives': obj.affected_relatives_count,
+            'generations_analyzed': obj.generations_analyzed,
+            'rare_diseases_found': obj.rare_diseases_found
+        }
+    
+    def get_recommendations(self, obj):
+        """Get recommendations in expected format."""
+        return {
+            'genetic_testing': obj.genetic_testing_recommendations,
+            'lifestyle_modifications': obj.lifestyle_recommendations,
+            'screening_schedule': obj.screening_recommendations,
+            'counseling_recommended': obj.counseling_recommended
+        }
+    
+    def get_risk_score(self, obj):
+        """Get risk scores in expected format."""
+        return {
+            'overall_score': obj.overall_risk_score,
+            'rare_disease_predisposition': obj.rare_disease_risk,
+            'oncological_risk': obj.oncological_risk,
+            'neurological_risk': obj.neurological_risk,
+            'cardiac_risk': obj.cardiac_risk
+        }
+    
+    def get_known_mutations(self, obj):
+        """Get known mutations (placeholder for future implementation)."""
+        # This would be expanded when genetic testing data is integrated
+        return [
+            {
+                'gene': 'BRCA1',
+                'mutation': 'c.68_69delAG',
+                'clinical_significance': 'Pathogenic',
+                'associated_conditions': ['Breast Cancer', 'Ovarian Cancer'],
+                'carrier_status': False
+            }
+        ] if obj.oncological_risk > 40 else []
+
+
+class GeneticAnalysisCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating genetic analyses."""
+    
+    class Meta:
+        model = GeneticAnalysis
+        fields = ['medical_record']
+    
+    def create(self, validated_data):
+        """Create a new genetic analysis."""
+        patient = self.context['request'].user
+        
+        # Import here to avoid circular import
+        from .services.genetic_analysis_service import GeneticAnalysisService
+        
+        return GeneticAnalysisService.generate_analysis(patient)

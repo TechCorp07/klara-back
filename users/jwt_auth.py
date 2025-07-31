@@ -339,54 +339,243 @@ class JWTAuthenticationManager:
     @classmethod
     def _get_user_permissions(cls, user: User) -> Dict[str, Any]:
         """Enhanced permissions for rare disease healthcare platform."""
-        
+        # Start with basic permissions that all users have
         base_permissions = {
+            # User info
             'role': user.role,
-            'is_admin': user.role in ['admin', 'superuser'],
-            'is_superuser': user.role == 'superuser',
+            'user_role': user.role,  # Frontend expects this key
+            
+            # Basic flags
+            'is_admin': user.is_staff or user.role in ['admin', 'superadmin'],
+            'is_superadmin': user.is_superuser or user.role == 'superadmin',
             'is_staff': user.is_staff,
+            
+            # Universal permissions
+            'can_view_own_data': True,
+            'can_edit_own_profile': True,
+            
+            # Dashboard access (everyone has some dashboard)
+            'has_dashboard_access': True,
         }
         
-        # Role-specific permissions
-        if user.role == 'patient':
+        # Add frontend-expected permissions based on role
+        if user.role in ['admin', 'superadmin']:
             base_permissions.update({
-                'can_view_own_data': True,
+                # Admin access permissions
+                'has_admin_access': True,
+                'has_user_management_access': True,
+                'has_system_settings_access': True,
+                'has_audit_access': True,
+                'has_compliance_access': True,
+                'has_export_access': True,
+                'has_compliance_reports_access': True,
+                'has_approval_permissions': True,
+                
+                # Mapped permissions for frontend
+                'can_access_admin': True,
+                'can_manage_users': True,
+                
+                # Healthcare permissions
+                'has_patient_data_access': True,
+                'can_access_patient_data': True,
+                'has_medical_records_access': True,
+                'can_manage_appointments': True,
+                'can_access_telemedicine': True,
+                'can_manage_medications': True,
+                'can_view_research_data': True,
+                'can_access_research_data': True,
+                'can_access_clinical_trials': True,
+                'can_emergency_access': True,
+                'can_view_phi': True,
+                'can_manage_emergencies': True,
+            })
+        
+        elif user.role == 'patient':
+            base_permissions.update({
+                # Patient-specific permissions
                 'can_authorize_caregivers': True,
                 'can_consent_to_research': True,
                 'can_manage_notifications': True,
                 'can_connect_devices': True,
+                'can_request_appointments': True,
+                'can_view_test_results': True,
+                'can_communicate_with_providers': True,
+                'can_participate_in_research': True,
+                'can_manage_consent': True,
+                
+                # Healthcare permissions for patients
+                'has_medical_records_access': True,  # Their own records
+                'can_manage_appointments': True,
+                'can_access_telemedicine': True,
+                'can_access_clinical_trials': True,
+                
+                # Explicitly false for admin permissions
+                'has_admin_access': False,
+                'has_user_management_access': False,
+                'has_system_settings_access': False,
+                'has_audit_access': False,
+                'has_compliance_access': False,
+                'has_export_access': False,
+                'has_patient_data_access': False,  # Can't access other patients
+                'can_access_admin': False,
+                'can_manage_users': False,
+                'can_emergency_access': False,
             })
+        
         elif user.role == 'provider':
             base_permissions.update({
+                # Provider permissions
                 'can_access_patient_data': True,
+                'has_patient_data_access': True,
                 'can_prescribe_medications': True,
                 'can_schedule_appointments': True,
                 'can_emergency_access': True,
                 'can_view_adherence_data': True,
+                'can_view_assigned_patients': True,
+                'can_modify_patient_records': True,
+                'can_order_tests': True,
+                'can_create_appointments': True,
+                'can_access_emergency_records': True,
+                'can_supervise_staff': True,
+                
+                # Healthcare permissions
+                'has_medical_records_access': True,
+                'can_manage_appointments': True,
+                'can_access_telemedicine': True,
+                'can_manage_medications': True,
+                'can_view_phi': True,
+                
+                # Limited admin permissions
+                'has_admin_access': False,
+                'has_user_management_access': False,
+                'has_system_settings_access': False,
+                'has_audit_access': False,
+                'has_compliance_access': False,
+                'has_export_access': False,
+                'can_access_admin': False,
+                'can_manage_users': False,
             })
+        
         elif user.role == 'pharmco':
             base_permissions.update({
+                # Pharmco permissions
                 'can_view_aggregated_data': True,
                 'can_monitor_drug_protocols': True,
                 'can_access_trial_data': True,
                 'can_generate_safety_reports': True,
+                
+                # Data access
+                'can_access_patient_data': True,  # Aggregated/consented only
+                'has_patient_data_access': True,
+                'can_view_research_data': True,
+                'can_access_research_data': True,
+                'can_manage_medications': True,
+                'can_access_clinical_trials': True,
+                
+                # No admin permissions
+                'has_admin_access': False,
+                'has_user_management_access': False,
+                'has_system_settings_access': False,
+                'has_audit_access': False,
+                'has_compliance_access': False,
+                'has_export_access': False,
+                'can_access_admin': False,
+                'can_manage_users': False,
+                'can_emergency_access': False,
             })
+        
         elif user.role == 'researcher':
             base_permissions.update({
+                # Researcher permissions
                 'can_request_data_access': True,
                 'can_view_consented_data': True,
                 'can_export_research_data': True,
+                'can_access_research_data': True,
+                'can_create_studies': True,
+                'can_recruit_participants': True,
+                'can_analyze_aggregated_data': True,
+                'can_publish_findings': True,
+                
+                # Data access
+                'can_view_research_data': True,
+                'can_access_clinical_trials': True,
+                'has_export_access': True,  # For research data only
+                
+                # No admin or patient permissions
+                'has_admin_access': False,
+                'has_user_management_access': False,
+                'has_system_settings_access': False,
+                'has_audit_access': False,
+                'has_compliance_access': False,
+                'has_patient_data_access': False,
+                'can_access_admin': False,
+                'can_manage_users': False,
+                'can_emergency_access': False,
             })
+        
         elif user.role == 'compliance':
             base_permissions.update({
+                # Compliance permissions
                 'can_audit_system': True,
                 'can_view_access_logs': True,
                 'can_generate_compliance_reports': True,
                 'can_review_consent_records': True,
+                'can_audit_user_activity': True,
+                'can_review_emergency_access': True,
+                'can_manage_consent_records': True,
+                'can_investigate_violations': True,
+                
+                # Access permissions
+                'has_audit_access': True,
+                'has_compliance_access': True,
+                'has_compliance_reports_access': True,
+                'can_view_phi': True,
+                'has_export_access': True,
+                
+                # Limited admin access
+                'has_admin_access': False,
+                'has_user_management_access': False,
+                'has_system_settings_access': False,
+                'has_patient_data_access': True,  # For auditing
+                'can_access_admin': False,
+                'can_manage_users': False,
+                'can_emergency_access': False,
             })
         
+        elif user.role == 'caregiver':
+            base_permissions.update({
+                # Caregiver permissions
+                'can_view_patient_data': True,  # For authorized patients only
+                'can_update_care_notes': True,
+                'can_manage_medications': True,
+                'can_schedule_appointments': True,
+                
+                # Healthcare permissions
+                'can_access_telemedicine': True,
+                'can_manage_appointments': True,
+                
+                # No admin permissions
+                'has_admin_access': False,
+                'has_user_management_access': False,
+                'has_system_settings_access': False,
+                'has_audit_access': False,
+                'has_compliance_access': False,
+                'has_export_access': False,
+                'has_patient_data_access': False,  # Only specific patients
+                'can_access_admin': False,
+                'can_manage_users': False,
+                'can_emergency_access': False,
+            })
+        
+        # Add profile verification status if available
+        base_permissions['identity_verified'] = False
+        if hasattr(user, 'patient_profile') and user.patient_profile:
+            base_permissions['identity_verified'] = user.patient_profile.identity_verified
+        elif hasattr(user, 'provider_profile') and user.provider_profile:
+            base_permissions['identity_verified'] = user.provider_profile.identity_verified
+        
         return base_permissions
-    
+
     @classmethod
     def _check_emergency_access_permissions(cls, user: User) -> bool:
         """Check if user has emergency access permissions."""

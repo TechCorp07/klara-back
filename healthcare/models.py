@@ -1,7 +1,13 @@
+import uuid
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from healthcare.fields import EncryptedCharField, EncryptedIntegerField, EncryptedTextField, EncryptedDateField, EncryptedDecimalField
+from django.core.validators import MinValueValidator, MaxValueValidator
+from django.contrib.auth import get_user_model
+
+
+User = get_user_model()
 
 class MedicalRecord(models.Model):
     """Model for patient medical records with enhanced security and HIPAA compliance."""
@@ -932,3 +938,184 @@ class ReferralNetwork(models.Model):
         ordering = ['specialty', '-years_experience']
         verbose_name = "Referral Network Entry"
         verbose_name_plural = "Referral Network"
+
+
+class GeneticAnalysis(models.Model):
+    """Model for storing genetic analysis results based on family history."""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    patient = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE, 
+        related_name='genetic_analyses',
+        limit_choices_to={'role': 'patient'}
+    )
+    medical_record = models.ForeignKey(
+        MedicalRecord, 
+        on_delete=models.CASCADE, 
+        related_name='genetic_analyses'
+    )
+    
+    # Analysis metadata
+    analysis_date = models.DateTimeField(auto_now_add=True)
+    version = models.CharField(max_length=10, default='1.0')
+    algorithm_version = models.CharField(max_length=20, default='v2024.1')
+    
+    # Family history summary
+    total_relatives_analyzed = models.PositiveIntegerField(default=0)
+    affected_relatives_count = models.PositiveIntegerField(default=0)
+    generations_analyzed = models.PositiveIntegerField(default=0)
+    
+    # Risk scores (0-100)
+    overall_risk_score = models.PositiveIntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Overall genetic risk score (0-100)"
+    )
+    rare_disease_risk = models.PositiveIntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        default=0
+    )
+    oncological_risk = models.PositiveIntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        default=0
+    )
+    neurological_risk = models.PositiveIntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        default=0
+    )
+    cardiac_risk = models.PositiveIntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        default=0
+    )
+    
+    # Analysis results as JSON
+    risk_factors = models.JSONField(default=list, help_text="List of identified genetic risk factors")
+    rare_diseases_found = models.JSONField(default=list, help_text="List of rare diseases found in family history")
+    inheritance_patterns = models.JSONField(default=dict, help_text="Identified inheritance patterns")
+    
+    # Recommendations
+    genetic_testing_recommendations = models.JSONField(default=list)
+    screening_recommendations = models.JSONField(default=list)
+    lifestyle_recommendations = models.JSONField(default=list)
+    counseling_recommended = models.BooleanField(default=False)
+    
+    # Status and approval
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('completed', 'Completed'),
+            ('reviewed', 'Reviewed by Provider'),
+            ('archived', 'Archived'),
+        ],
+        default='completed'
+    )
+    
+    # Provider review
+    reviewed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_genetic_analyses',
+        limit_choices_to={'role': 'provider'}
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    provider_notes = models.TextField(blank=True)
+    
+    # Audit fields
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'genetic_analyses'
+        ordering = ['-analysis_date']
+        verbose_name = 'Genetic Analysis'
+        verbose_name_plural = 'Genetic Analyses'
+    
+    def __str__(self):
+        return f"Genetic Analysis for {self.patient.get_full_name()} - {self.analysis_date.strftime('%Y-%m-%d')}"
+    
+    @property
+    def risk_level_display(self):
+        """Return human-readable risk level based on overall score."""
+        if self.overall_risk_score >= 75:
+            return 'Very High'
+        elif self.overall_risk_score >= 50:
+            return 'High'
+        elif self.overall_risk_score >= 25:
+            return 'Moderate'
+        else:
+            return 'Low'
+
+
+class GeneticRiskFactor(models.Model):
+    """Model for individual genetic risk factors identified in analysis."""
+    
+    analysis = models.ForeignKey(
+        GeneticAnalysis,
+        on_delete=models.CASCADE,
+        related_name='identified_risk_factors'
+    )
+    
+    condition = models.CharField(max_length=255, help_text="Medical condition name")
+    risk_level = models.CharField(
+        max_length=20,
+        choices=[
+            ('low', 'Low'),
+            ('moderate', 'Moderate'),
+            ('high', 'High'),
+            ('very_high', 'Very High'),
+        ]
+    )
+    
+    # Family history details
+    family_history_count = models.PositiveIntegerField(
+        help_text="Number of family members with this condition"
+    )
+    affected_relationships = models.JSONField(
+        default=list,
+        help_text="List of family relationships affected"
+    )
+    
+    # Clinical details
+    inheritance_pattern = models.CharField(
+        max_length=50,
+        choices=[
+            ('autosomal_dominant', 'Autosomal Dominant'),
+            ('autosomal_recessive', 'Autosomal Recessive'),
+            ('x_linked', 'X-Linked'),
+            ('mitochondrial', 'Mitochondrial'),
+            ('complex', 'Complex/Multifactorial'),
+            ('unknown', 'Unknown'),
+        ],
+        default='unknown'
+    )
+    
+    age_of_onset_range = models.CharField(
+        max_length=50,
+        help_text="Typical age range for condition onset",
+        blank=True
+    )
+    
+    # Recommendations specific to this risk factor
+    prevention_recommendations = models.JSONField(default=list)
+    screening_recommendations = models.JSONField(default=list)
+    
+    # Genetic testing
+    relevant_genes = models.JSONField(
+        default=list,
+        help_text="List of genes associated with this condition"
+    )
+    testing_available = models.BooleanField(default=False)
+    testing_recommended = models.BooleanField(default=False)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'genetic_risk_factors'
+        unique_together = ['analysis', 'condition']
+        ordering = ['-risk_level', 'condition']
+    
+    def __str__(self):
+        return f"{self.condition} - {self.get_risk_level_display()} Risk"
