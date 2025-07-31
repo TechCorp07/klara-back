@@ -868,7 +868,9 @@ class UserSession(models.Model):
     session_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='active_sessions')
     pharmaceutical_tenant = models.ForeignKey(PharmaceuticalTenant, on_delete=models.CASCADE, null=True, blank=True)
-    
+    session_token_hash = models.CharField(max_length=64, null=True, blank=True)
+    session_token_expires = models.DateTimeField(null=True, blank=True)
+
     # Session metadata
     created_at = models.DateTimeField(auto_now_add=True)
     last_activity = models.DateTimeField(auto_now=True)
