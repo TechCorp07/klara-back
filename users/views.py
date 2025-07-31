@@ -1721,68 +1721,155 @@ class PatientProfileViewSet(BaseViewSet):
             description=f"Verified identity for patient: {profile.user.email}",
             request=request
         )
-        
+
         return Response({'detail': 'Identity verified successfully'})
 
-    @action(detail=True, methods=['post'])
-    def update_consent(self, request, pk=None):
-        """Update patient consent preferences."""
-        profile = self.get_object()
+    @action(detail=False, methods=['post'])
+    def update_consent(self, request):
+        """Update or create a consent record."""
+        import logging
+        logger = logging.getLogger('healthcare.consent')
         
-        # Ensure user can only update their own consent
-        if profile.user != request.user:
-            return Response({
-                'detail': 'You can only update your own consent preferences'
-            }, status=status.HTTP_403_FORBIDDEN)
+        logger.info(f"🔍 [update_consent] Request received from user {request.user.id if request.user.is_authenticated else 'Anonymous'}")
+        logger.info(f"🔍 [update_consent] Request method: {request.method}")
+        logger.info(f"🔍 [update_consent] Request path: {request.path}")
+        logger.info(f"🔍 [update_consent] Request headers: {dict(request.headers)}")
+        logger.info(f"🔍 [update_consent] Request data: {request.data}")
+        logger.info(f"🔍 [update_consent] User authenticated: {request.user.is_authenticated}")
         
-        consent_fields = [
-            'medication_adherence_monitoring_consent',
-            'vitals_monitoring_consent',
-            'research_participation_consent'
-        ]
+        if request.user.is_authenticated:
+            logger.info(f"🔍 [update_consent] User details: ID={request.user.id}, Role={getattr(request.user, 'role', 'No role')}, Email={request.user.email}")
         
-        for field in consent_fields:
-            if field in request.data:
-                old_value = getattr(profile, field)
-                new_value = request.data[field]
-                
-                if old_value != new_value:
-                    setattr(profile, field, new_value)
-                    setattr(profile, f"{field.replace('_consent', '')}_date", timezone.now())
-                    
-                    # Create consent record
-                    consent_type_map = {
-                        'medication_adherence_monitoring_consent': 'MEDICATION_MONITORING',
-                        'vitals_monitoring_consent': 'VITALS_MONITORING',
-                        'research_participation_consent': 'RESEARCH_PARTICIPATION'
-                    }
-                    
-                    ConsentRecord.objects.create(
-                        user=request.user,
-                        consent_type=consent_type_map[field],
-                        consented=new_value,
-                        signature_ip=self.get_client_ip(request),
-                        signature_user_agent=self.get_user_agent(request)
-                    )
+        consent_type = request.data.get('consent_type')
+        consented = request.data.get('consented', False)
+        authorized_entity_id = request.data.get('authorized_entity_id')
         
-        profile.save()
+        logger.info(f"🔍 [update_consent] Extracted values: consent_type='{consent_type}', consented={consented}, authorized_entity_id={authorized_entity_id}")
         
-        return Response({
-            'detail': 'Consent preferences updated',
-            'profile': PatientProfileSerializer(profile).data
-        })
-    
+        if not consent_type:
+            logger.error("❌ [update_consent] consent_type parameter is missing")
+            return Response(
+                {"error": "consent_type parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # Validate consent type
+        valid_types = dict(HealthDataConsent.CONSENT_TYPES).keys()
+        logger.info(f"🔍 [update_consent] Valid consent types: {list(valid_types)}")
+        
+        if consent_type not in valid_types:
+            logger.error(f"❌ [update_consent] Invalid consent_type '{consent_type}'. Valid types: {list(valid_types)}")
+            return Response(
+                {"error": f"Invalid consent_type. Must be one of: {', '.join(valid_types)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        logger.info(f"✅ [update_consent] Consent type '{consent_type}' is valid")
+        
+        # Get or create consent
+        data = {
+            'patient': request.user.id,
+            'consent_type': consent_type,
+            'consented': consented
+        }
+        
+        logger.info(f"🔍 [update_consent] Consent data prepared: {data}")
+        
+        if authorized_entity_id:
+            try:
+                authorized_entity = User.objects.get(id=authorized_entity_id)
+                data['authorized_entity'] = authorized_entity.id
+                logger.info(f"🔍 [update_consent] Authorized entity found: {authorized_entity.id}")
+            except User.DoesNotExist:
+                logger.error(f"❌ [update_consent] Authorized entity not found: {authorized_entity_id}")
+                return Response(
+                    {"error": "Authorized entity not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        
+        # Try to find existing consent
+        try:
+            consent = HealthDataConsent.objects.get(
+                patient=request.user,
+                consent_type=consent_type,
+                authorized_entity_id=authorized_entity_id
+            )
+            logger.info(f"🔍 [update_consent] Existing consent found: {consent.id}")
+            serializer = HealthDataConsentSerializer(
+                consent, 
+                data=data,
+                context=self.get_serializer_context()
+            )
+        except HealthDataConsent.DoesNotExist:
+            logger.info(f"🔍 [update_consent] No existing consent found, creating new one")
+            serializer = HealthDataConsentSerializer(
+                data=data,
+                context=self.get_serializer_context()
+            )
+        
+        # Save the consent
+        try:
+            logger.info(f"🔍 [update_consent] Validating serializer...")
+            serializer.is_valid(raise_exception=True)
+            logger.info(f"✅ [update_consent] Serializer is valid")
+            
+            logger.info(f"🔍 [update_consent] Saving consent...")
+            consent = serializer.save()
+            logger.info(f"✅ [update_consent] Consent saved successfully: {consent.id}")
+            
+        except Exception as e:
+            logger.error(f"❌ [update_consent] Serializer validation or save failed: {str(e)}")
+            logger.error(f"❌ [update_consent] Serializer errors: {serializer.errors if 'serializer' in locals() else 'No serializer'}")
+            raise
+        
+        # Update user consent flags if applicable (keeping your existing logic)
+        if consent_type == 'medication_tracking' and hasattr(request.user, 'patient_profile'):
+            logger.info(f"🔍 [update_consent] Updating medication tracking user flags")
+            request.user.medication_adherence_monitoring_consent = consented
+            request.user.patient_profile.medication_adherence_opt_in = consented
+            request.user.patient_profile.medication_adherence_consent_date = timezone.now() if consented else None
+            request.user.save(update_fields=['medication_adherence_monitoring_consent'])
+            request.user.patient_profile.save(update_fields=['medication_adherence_opt_in', 'medication_adherence_consent_date'])
+        
+        elif consent_type == 'vitals_monitoring' and hasattr(request.user, 'patient_profile'):
+            logger.info(f"🔍 [update_consent] Updating vitals monitoring user flags")
+            request.user.vitals_monitoring_consent = consented
+            request.user.patient_profile.vitals_monitoring_opt_in = consented
+            request.user.patient_profile.vitals_monitoring_consent_date = timezone.now() if consented else None
+            request.user.save(update_fields=['vitals_monitoring_consent'])
+            request.user.patient_profile.save(update_fields=['vitals_monitoring_opt_in', 'vitals_monitoring_consent_date'])
+        
+        elif consent_type == 'research' and hasattr(request.user, 'patient_profile'):
+            logger.info(f"🔍 [update_consent] Updating research consent user flags")
+            request.user.research_consent = consented
+            request.user.save(update_fields=['research_consent'])
+            
+            # Update medical record research consent
+            try:
+                medical_record = request.user.medical_records.first()
+                if medical_record:
+                    medical_record.research_participation_consent = consented
+                    medical_record.research_consent_date = timezone.now() if consented else None
+                    medical_record.save(update_fields=['research_participation_consent', 'research_consent_date'])
+            except Exception:
+                pass
+        
+        response_data = HealthDataConsentSerializer(consent, context=self.get_serializer_context()).data
+        logger.info(f"✅ [update_consent] Returning successful response: {response_data}")
+        
+        return Response(response_data)
+
     @action(detail=True, methods=['post'])
     def complete_profile(self, request, pk=None):
         """Complete patient profile with additional information."""
         profile = self.get_object()
-        
+
         # Ensure user can only update their own profile
         if profile.user != request.user:
             return Response({
                 'detail': 'You can only update your own profile'
             }, status=status.HTTP_403_FORBIDDEN)
-        
+
         # Update profile fields
         allowed_fields = [
             'medical_id', 'blood_type', 'allergies',

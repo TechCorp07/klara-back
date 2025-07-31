@@ -63,6 +63,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'debug_logging_middleware.DebugLoggingMiddleware',
     'security.middleware.SecurityResponseMiddleware',  
     'users.jwt_middleware.SecurityHeadersMiddleware',  # security headers
     'whitenoise.middleware.WhiteNoiseMiddleware',
@@ -509,6 +510,11 @@ LOGGING = {
         'users.jwt_auth': {
             'handlers': ['auth_file'],
             'level': 'INFO',
+            'propagate': True,
+        },
+        'healthcare.consent': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
             'propagate': True,
         },
         'users.jwt_middleware': {
