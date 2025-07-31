@@ -1279,7 +1279,7 @@ class HealthDataConsentViewSet(BaseHealthcareViewSet):
     permission_classes = [permissions.IsAuthenticated, IsApprovedUser]
     filterset_fields = ['patient', 'consent_type', 'consented']
     ordering_fields = ['consented_at', 'updated_at']
-    
+
     def get_queryset(self):
         """Filter consents based on user role and permissions."""
         if getattr(self, 'swagger_fake_view', False):
@@ -1311,7 +1311,7 @@ class HealthDataConsentViewSet(BaseHealthcareViewSet):
             return queryset
             
         return HealthDataConsent.objects.none()
-    
+
     @action(detail=False, methods=['get'])
     def my_consents(self, request):
         """Get all consents for the current user."""
@@ -1335,7 +1335,7 @@ class HealthDataConsentViewSet(BaseHealthcareViewSet):
             'consents': consents_data,
             'count': consents.count(),
         })
-    
+
     @action(detail=False, methods=['post'], url_path='update_consent')
     def update_consent(self, request):
         """Update or create a consent record."""
@@ -1346,33 +1346,33 @@ class HealthDataConsentViewSet(BaseHealthcareViewSet):
         try:
             import logging
             logger = logging.getLogger('healthcare.consent')
-            
+
             logger.info(f"🔍 [update_consent] Request received from user {request.user.id if request.user.is_authenticated else 'Anonymous'}")
             logger.info(f"🔍 [update_consent] Request method: {request.method}")
             logger.info(f"🔍 [update_consent] Request path: {request.path}")
             logger.info(f"🔍 [update_consent] Request headers: {dict(request.headers)}")
             logger.info(f"🔍 [update_consent] Request data: {request.data}")
             logger.info(f"🔍 [update_consent] User authenticated: {request.user.is_authenticated}")
-            
+
             if request.user.is_authenticated:
                 logger.info(f"🔍 [update_consent] User details: ID={request.user.id}, Role={getattr(request.user, 'role', 'No role')}, Email={request.user.email}")
-            
+
             consent_type = request.data.get('consent_type')
             consented = request.data.get('consented', False)
             authorized_entity_id = request.data.get('authorized_entity_id')
-            
+
             logger.info(f"🔍 [update_consent] Extracted values: consent_type='{consent_type}', consented={consented}, authorized_entity_id={authorized_entity_id}")
-            
+
             consent_type = request.data.get('consent_type')
             consented = request.data.get('consented', False)
             authorized_entity_id = request.data.get('authorized_entity_id')
-            
+
             if not consent_type:
                 return Response(
                     {"error": "consent_type parameter is required"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-                
+
             # Validate consent type
             valid_types = dict(HealthDataConsent.CONSENT_TYPES).keys()
             if consent_type not in valid_types:
@@ -1381,45 +1381,51 @@ class HealthDataConsentViewSet(BaseHealthcareViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            authorized_entity = None
+            if authorized_entity_id:
+                try:
+                    authorized_entity = User.objects.get(id=authorized_entity_id)
+                    logger.info(f"🔍 [update_consent] Authorized entity found: {authorized_entity.id}")
+                except User.DoesNotExist:
+                    logger.error(f"❌ [update_consent] Authorized entity not found: {authorized_entity_id}")
+                    return Response(
+                        {"error": "Authorized entity not found"},
+                        status=status.HTTP_404_NOT_FOUND
+        )
             # Get or create consent
             data = {
                 'patient': request.user.id,
                 'consent_type': consent_type,
-                'consented': consented
+                'consented': consented,
+                'authorized_entity': authorized_entity.id if authorized_entity else None
             }
             
-            if authorized_entity_id:
-                try:
-                    authorized_entity = User.objects.get(id=authorized_entity_id)
-                    data['authorized_entity'] = authorized_entity.id
-                except User.DoesNotExist:
-                    return Response(
-                        {"error": "Authorized entity not found"},
-                        status=status.HTTP_404_NOT_FOUND
-                    )
+            logger.info(f"🔍 [update_consent] Consent data prepared: {data}")       
             
             # Try to find existing consent
             try:
                 consent = HealthDataConsent.objects.get(
                     patient=request.user,
                     consent_type=consent_type,
-                    authorized_entity_id=authorized_entity_id
+                    authorized_entity=authorized_entity
                 )
+                logger.info(f"🔍 [update_consent] Existing consent found: {consent.id}")
                 serializer = HealthDataConsentSerializer(
                     consent, 
                     data=data,
                     context=self.get_serializer_context()
                 )
             except HealthDataConsent.DoesNotExist:
+                logger.info(f"🔍 [update_consent] No existing consent found, creating new one")
                 serializer = HealthDataConsentSerializer(
                     data=data,
                     context=self.get_serializer_context()
                 )
-            
+
             # Save the consent
             serializer.is_valid(raise_exception=True)
             consent = serializer.save()
-            
+
             # Update user consent flags if applicable
             if consent_type == 'medication_tracking' and hasattr(request.user, 'patient_profile'):
                 request.user.medication_adherence_monitoring_consent = consented
