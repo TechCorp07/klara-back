@@ -514,6 +514,11 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+        'healthcare.consent': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
         'users.jwt_middleware': {
             'handlers': ['security_file'],
             'level': 'WARNING',
