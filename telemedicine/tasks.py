@@ -409,6 +409,7 @@ def send_consultation_preparation_reminder(appointment_id, is_final_reminder=Fal
         logger.error(f"Error sending consultation preparation reminder: {str(e)}")
         return f"Error: {str(e)}"
 
+
 @shared_task
 def sync_consultation_with_medication_reminders(consultation_id):
     """
@@ -465,3 +466,38 @@ def sync_consultation_with_medication_reminders(consultation_id):
     except Exception as e:
         logger.error(f"Error syncing consultation with medication reminders: {str(e)}")
         return f"Error: {str(e)}"
+
+
+def send_appointment_reminders_sync():
+    """Synchronous version for testing without Celery."""
+    logger.info("Starting appointment reminder task (sync)")
+    
+    now = timezone.now()
+    reminder_window_end = now + timedelta(hours=24)
+    
+    upcoming_appointments = Appointment.objects.filter(
+        scheduled_time__gt=now,
+        scheduled_time__lte=reminder_window_end,
+        reminder_sent=False,
+        status__in=['scheduled', 'confirmed']
+    )
+    
+    success_count = 0
+    failure_count = 0
+    
+    for appointment in upcoming_appointments:
+        try:
+            # Use your existing telemedicine notification service
+            sent = telemedicine_notifications.send_appointment_reminder(appointment)
+            
+            if sent:
+                success_count += 1
+            else:
+                failure_count += 1
+                
+        except Exception as e:
+            logger.error(f"Error sending reminder for appointment {appointment.id}: {str(e)}")
+            failure_count += 1
+    
+    logger.info(f"Appointment reminder task completed: {success_count} sent, {failure_count} failed")
+    return f"{success_count} reminders sent, {failure_count} failed"

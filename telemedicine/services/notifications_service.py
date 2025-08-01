@@ -50,76 +50,6 @@ class TelemedicineNotificationService:
         except Exception as e:
             logger.error(f"Error sending appointment confirmation: {str(e)}")
             return False
-    
-    def send_appointment_reminder(self, appointment: Appointment) -> bool:
-        """Send appointment reminder 24 hours before scheduled time."""
-        try:
-            patient = appointment.patient
-            
-            # Prepare reminder data
-            notification_data = {
-                'appointment_id': str(appointment.id),
-                'patient_name': patient.get_full_name(),
-                'provider_name': appointment.provider.get_full_name(),
-                'appointment_type': appointment.get_appointment_type_display(),
-                'scheduled_time': appointment.scheduled_time.strftime('%B %d, %Y at %I:%M %p'),
-                'duration': appointment.duration_minutes,
-                'is_telemedicine': appointment.is_telemedicine,
-                'rare_condition_focus': self._is_rare_condition_appointment(appointment)
-            }
-            
-            # Get patient notification preferences
-            notification_methods = []
-            if hasattr(patient, 'patient_profile'):
-                notification_methods = patient.patient_profile.appointment_reminder_methods
-            
-            if not notification_methods:
-                notification_methods = ['email', 'push']  # Default
-            
-            success = True
-            
-            # Send email reminder
-            if 'email' in notification_methods:
-                email_success = self.notification_service.send_email(
-                    recipient=patient.email,
-                    subject=f"Appointment Reminder - {appointment.scheduled_time.strftime('%B %d')}",
-                    template='appointment_reminder',
-                    context=notification_data
-                )
-                success = success and email_success
-            
-            # Send push notification
-            if 'push' in notification_methods:
-                push_success = self.notification_service.send_push_notification(
-                    user=patient,
-                    title="Upcoming Appointment",
-                    message=f"Reminder: You have an appointment with {appointment.provider.get_full_name()} tomorrow",
-                    data={
-                        'type': 'appointment_reminder',
-                        'appointment_id': notification_data['appointment_id']
-                    }
-                )
-                success = success and push_success
-            
-            # Send SMS reminder
-            if 'sms' in notification_methods and hasattr(patient, 'phone_number'):
-                sms_success = self.notification_service.send_sms(
-                    phone_number=patient.phone_number,
-                    message=f"Appointment reminder: {notification_data['appointment_type']} with {notification_data['provider_name']} on {notification_data['scheduled_time']}"
-                )
-                success = success and sms_success
-            
-            # Mark reminder as sent
-            if success:
-                appointment.reminder_sent = True
-                appointment.reminder_sent_time = timezone.now()
-                appointment.save(update_fields=['reminder_sent', 'reminder_sent_time'])
-            
-            return success
-            
-        except Exception as e:
-            logger.error(f"Error sending appointment reminder: {str(e)}")
-            return False
 
     def send_medication_reminder_during_consultation(self, consultation: Consultation, 
                                                    medication_info: Dict[str, Any]) -> bool:
@@ -281,52 +211,6 @@ class TelemedicineNotificationService:
         """Check if appointment is for rare condition patient."""
         return appointment.medical_record and appointment.medical_record.has_rare_condition
     
-    def _send_patient_confirmation(self, patient, notification_data: Dict[str, Any]) -> bool:
-        """Send appointment confirmation to patient."""
-        
-        # Determine notification methods based on patient preferences
-        notification_methods = []
-        if hasattr(patient, 'patient_profile'):
-            notification_methods = patient.patient_profile.appointment_reminder_methods
-        
-        if not notification_methods:
-            notification_methods = ['email', 'push']  # Default methods
-        
-        success = True
-        
-        # Send email if enabled
-        if 'email' in notification_methods:
-            email_success = self.notification_service.send_email(
-                recipient=patient.email,
-                subject="Appointment Confirmation",
-                template='appointment_confirmation',
-                context=notification_data
-            )
-            success = success and email_success
-        
-        # Send push notification if enabled
-        if 'push' in notification_methods:
-            push_success = self.notification_service.send_push_notification(
-                user=patient,
-                title="Appointment Confirmed",
-                message=f"Your {notification_data['appointment_type']} with {notification_data['provider_name']} is confirmed",
-                data={
-                    'type': 'appointment_confirmation',
-                    'appointment_id': notification_data['appointment_id']
-                }
-            )
-            success = success and push_success
-        
-        # Send SMS if enabled
-        if 'sms' in notification_methods and patient.phone_number:
-            sms_success = self.notification_service.send_sms(
-                phone_number=patient.phone_number,
-                message=f"Appointment confirmed: {notification_data['appointment_type']} with {notification_data['provider_name']} on {notification_data['scheduled_time']}"
-            )
-            success = success and sms_success
-        
-        return success
-    
     def _send_caregiver_notifications(self, patient, notification_data: Dict[str, Any], 
                                     notification_type: str) -> bool:
         """Send notifications to authorized caregivers."""
@@ -381,6 +265,100 @@ class TelemedicineNotificationService:
         # This would integrate with your family history system
         # For now, return empty list - implement based on your family data structure
         return []
+
+    def send_appointment_reminder(self, appointment: Appointment) -> bool:
+        """Send appointment reminder 24 hours before scheduled time."""
+        try:
+            patient = appointment.patient
+            
+            # Prepare reminder data
+            notification_data = {
+                'appointment_id': str(appointment.id),
+                'patient_name': patient.get_full_name(),
+                'provider_name': appointment.provider.get_full_name(),
+                'appointment_type': appointment.get_appointment_type_display(),
+                'scheduled_time': appointment.scheduled_time.strftime('%B %d, %Y at %I:%M %p'),
+                'duration': appointment.duration_minutes,
+                'is_telemedicine': appointment.is_telemedicine,
+                'rare_condition_focus': self._is_rare_condition_appointment(appointment)
+            }
+            
+            success = True
+            
+            # Create in-app notification
+            try:
+                self.notification_service.create_notification(
+                    user=patient,
+                    title="Upcoming Appointment Reminder",
+                    message=f"You have an appointment with {appointment.provider.get_full_name()} on {notification_data['scheduled_time']}",
+                    notification_type='appointment_reminder',
+                    related_object_id=appointment.id,
+                    related_object_type='appointment'
+                )
+            except Exception as e:
+                logger.error(f"Failed to create in-app notification: {str(e)}")
+                success = False
+            
+            # Send email using standalone function
+            try:
+                from communication.services.notification_service import send_email_notification
+                send_email_notification(
+                    user=patient,
+                    title=f"Appointment Reminder - {appointment.scheduled_time.strftime('%B %d')}",
+                    message=f"Reminder: You have an appointment with {appointment.provider.get_full_name()} on {notification_data['scheduled_time']}",
+                    notification_type='appointment_reminder'
+                )
+            except Exception as e:
+                logger.error(f"Failed to send email reminder: {str(e)}")
+            
+            # Mark reminder as sent
+            if success:
+                appointment.reminder_sent = True
+                appointment.reminder_sent_time = timezone.now()
+                appointment.save(update_fields=['reminder_sent', 'reminder_sent_time'])
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error sending appointment reminder: {str(e)}")
+            return False
+
+    def _send_patient_confirmation(self, patient, notification_data: Dict[str, Any]) -> bool:
+        """Send appointment confirmation to patient."""
+        try:
+            success = True
+            
+            # Create in-app notification
+            try:
+                self.notification_service.create_notification(
+                    user=patient,
+                    title="Appointment Confirmed",
+                    message=f"Your {notification_data['appointment_type']} with {notification_data['provider_name']} is confirmed for {notification_data['scheduled_time']}",
+                    notification_type='appointment_confirmation',
+                    related_object_id=notification_data['appointment_id'],
+                    related_object_type='appointment'
+                )
+            except Exception as e:
+                logger.error(f"Failed to create confirmation notification: {str(e)}")
+                success = False
+            
+            # Send email using standalone function
+            try:
+                from communication.services.notification_service import send_email_notification
+                send_email_notification(
+                    user=patient,
+                    title="Appointment Confirmation",
+                    message=f"Your {notification_data['appointment_type']} with {notification_data['provider_name']} is confirmed",
+                    notification_type='appointment_confirmation'
+                )
+            except Exception as e:
+                logger.error(f"Failed to send confirmation email: {str(e)}")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error sending patient confirmation: {str(e)}")
+            return False
 
 # Create service instance for use by other modules
 telemedicine_notifications = TelemedicineNotificationService()

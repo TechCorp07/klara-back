@@ -14,30 +14,22 @@ class NotificationException(Exception):
 def create_notification(user, title, message, notification_type, related_object_id=None, related_object_type=None):
     """
     Create a notification for a user.
-    
-    Args:
-        user: User to send notification to
-        title: Notification title
-        message: Notification message
-        notification_type: Type of notification (appointment, message, prescription, etc.)
-        related_object_id: ID of the related object (optional)
-        related_object_type: Type of the related object (optional)
-    
-    Returns:
-        Notification: The created notification object
-    
-    Raises:
-        NotificationException: If notification creation fails
     """
     try:
         from ..models import Notification
-        
+
+        # Provide defaults for required fields if None
+        if related_object_id is None:
+            related_object_id = 'system'
+        if related_object_type is None:
+            related_object_type = 'general'
+
         notification = Notification.objects.create(
             user=user,
             title=title,
             message=message,
             notification_type=notification_type,
-            related_object_id=related_object_id,
+            related_object_id=str(related_object_id),
             related_object_type=related_object_type
         )
         

@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from telemedicine.models import Appointment
 from telemedicine.services.notifications_service import telemedicine_notifications
-from communication.services import NotificationService
+from communication.services.notification_service import NotificationService, send_email_notification
 
 User = get_user_model()
 
@@ -18,7 +18,6 @@ class Command(BaseCommand):
         user_id = options.get('user_id')
 
         if appointment_id:
-            # Test specific appointment
             try:
                 appointment = Appointment.objects.get(id=appointment_id)
                 self.stdout.write(f"Testing notifications for appointment: {appointment}")
@@ -41,7 +40,6 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(f'Appointment {appointment_id} not found'))
         
         elif user_id:
-            # Test all appointments for user
             try:
                 user = User.objects.get(id=user_id)
                 appointments = Appointment.objects.filter(patient=user)
@@ -60,7 +58,6 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(f'User {user_id} not found'))
         
         else:
-            # Test with latest appointment
             latest_appointment = Appointment.objects.filter(status='scheduled').first()
             if latest_appointment:
                 self.stdout.write(f"Testing with latest appointment: {latest_appointment}")
@@ -78,18 +75,32 @@ class Command(BaseCommand):
             notification_service = NotificationService()
             patient = User.objects.get(role='patient', email='patient@example.com')
             
-            # Test push notification
-            push_success = notification_service.send_push_notification(
+            # Test in-app notification creation
+            notification = notification_service.create_notification(
                 user=patient,
                 title="Test Notification",
                 message="This is a test notification from the appointment system",
-                data={'type': 'test', 'timestamp': 'now'}
+                notification_type='test',
+                related_object_id='test',  
+                related_object_type='system'
             )
             
-            if push_success:
-                self.stdout.write(self.style.SUCCESS('✅ Push notification test passed'))
+            if notification:
+                self.stdout.write(self.style.SUCCESS('✅ In-app notification test passed'))
             else:
-                self.stdout.write(self.style.WARNING('⚠️ Push notification test returned False (might be expected if no push service configured)'))
+                self.stdout.write(self.style.ERROR('❌ In-app notification test failed'))
+            
+            # Test email notification
+            try:
+                send_email_notification(
+                    user=patient,
+                    title="Test Email Notification",
+                    message="This is a test email notification",
+                    notification_type='test'
+                )
+                self.stdout.write(self.style.SUCCESS('✅ Email notification test passed'))
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(f'⚠️ Email notification test failed: {str(e)} (might be expected if email not configured)'))
                 
         except Exception as e:
             self.stdout.write(self.style.ERROR(f'❌ Notification service test failed: {str(e)}'))

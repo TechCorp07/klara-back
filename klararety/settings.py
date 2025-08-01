@@ -556,12 +556,13 @@ WITHINGS_CLIENT_SECRET = env('WITHINGS_CLIENT_SECRET', default='')
 WITHINGS_CALLBACK_URL = env('WITHINGS_REDIRECT_URI', default='')
 
 # Email Configuration
-EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
+EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = env('EMAIL_HOST', default='localhost')
 EMAIL_PORT = env.int('EMAIL_PORT', default=587)
 EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
 EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
+EMAIL_NOTIFICATIONS_ENABLED = env.bool('EMAIL_NOTIFICATIONS_ENABLED', default=False)
 
 # Telemedicine settings
 ZOOM_API_KEY = env('ZOOM_API_KEY', default='')

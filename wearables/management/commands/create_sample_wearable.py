@@ -1,3 +1,4 @@
+from django.utils import timezone
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from wearables.models import WearableIntegration
@@ -12,16 +13,26 @@ class Command(BaseCommand):
             # Get the patient user
             patient = User.objects.get(id=2, role='patient')
             
-            # Create sample Apple Watch integration
+            # Create sample Apple Watch integration using correct fields
             apple_watch, created = WearableIntegration.objects.get_or_create(
                 user=patient,
-                integration_type='apple_watch',
+                integration_type='apple_health',
                 defaults={
-                    'device_name': 'Apple Watch Series 9',
+                    'status': 'connected',
                     'platform_user_id': 'test_device_token_123',
-                    'is_active': True,
-                    'sync_enabled': True,
-                    'notification_enabled': True,
+                    'consent_granted': True,
+                    'consent_date': timezone.now(),
+                    'collect_steps': True,
+                    'collect_heart_rate': True,
+                    'collect_sleep': True,
+                    'collect_blood_pressure': True,
+                    'sync_frequency': 6,  # Sync every 6 hours
+                    'settings': {
+                        'device_name': 'Apple Watch Series 9',
+                        'notification_enabled': True,
+                        'medication_reminders': True,
+                        'appointment_reminders': True
+                    }
                 }
             )
             
