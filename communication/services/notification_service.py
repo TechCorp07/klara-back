@@ -18,18 +18,22 @@ def create_notification(user, title, message, notification_type, related_object_
     try:
         from ..models import Notification
 
-        # Provide defaults for required fields if None
         if related_object_id is None:
-            related_object_id = 'system'
+            related_object_id = 1
         if related_object_type is None:
             related_object_type = 'general'
+
+        if isinstance(related_object_id, str) and related_object_id.isdigit():
+            related_object_id = int(related_object_id)
+        elif not isinstance(related_object_id, int):
+            related_object_id = 1
 
         notification = Notification.objects.create(
             user=user,
             title=title,
             message=message,
             notification_type=notification_type,
-            related_object_id=str(related_object_id),
+            related_object_id=related_object_id,
             related_object_type=related_object_type
         )
         

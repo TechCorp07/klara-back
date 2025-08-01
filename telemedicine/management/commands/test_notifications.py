@@ -75,13 +75,13 @@ class Command(BaseCommand):
             notification_service = NotificationService()
             patient = User.objects.get(role='patient', email='patient@example.com')
             
-            # Test in-app notification creation
+            # Test in-app notification creation with a number for related_object_id
             notification = notification_service.create_notification(
                 user=patient,
                 title="Test Notification",
                 message="This is a test notification from the appointment system",
                 notification_type='test',
-                related_object_id='test',  
+                related_object_id=1,  # Use a number instead of string
                 related_object_type='system'
             )
             
@@ -100,7 +100,7 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(self.style.SUCCESS('✅ Email notification test passed'))
             except Exception as e:
-                self.stdout.write(self.style.WARNING(f'⚠️ Email notification test failed: {str(e)} (might be expected if email not configured)'))
+                self.stdout.write(self.style.WARNING(f'⚠️ Email notification test failed: {str(e)} (expected in development without SMTP)'))
                 
         except Exception as e:
             self.stdout.write(self.style.ERROR(f'❌ Notification service test failed: {str(e)}'))

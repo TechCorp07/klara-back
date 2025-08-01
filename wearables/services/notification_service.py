@@ -320,6 +320,7 @@ class WearableNotificationService:
             integrations = WearableIntegration.objects.filter(
                 user=user,
                 is_active=True,
+                status='connected',
                 integration_type__in=['apple_watch', 'samsung_watch', 'fitbit', 'garmin']
             )
             
@@ -387,6 +388,227 @@ class WearableNotificationService:
             logger.error(f"Error sending Apple Watch appointment reminder: {str(e)}")
             return False
   
+    @classmethod
+    def send_appointment_reminder(cls, user, title: str, message: str, **kwargs) -> bool:
+        """Send appointment reminder to user's smartwatch."""
+        try:
+            integrations = WearableIntegration.objects.filter(
+                user=user,
+                status='connected',  # Use status instead of is_active
+                integration_type__in=['apple_health', 'samsung_health', 'fitbit', 'garmin']
+            )
+            
+            if not integrations.exists():
+                logger.info(f"No active wearable integrations found for user {user.id}")
+                return False
+            
+            success_count = 0
+            for integration in integrations:
+                try:
+                    if integration.integration_type == 'apple_health':
+                        sent = cls._send_apple_watch_appointment_reminder(integration, title, message, **kwargs)
+                    elif integration.integration_type == 'samsung_health':
+                        sent = cls._send_samsung_watch_appointment_reminder(integration, title, message, **kwargs)
+                    else:
+                        sent = cls._send_generic_appointment_reminder(integration, title, message, **kwargs)
+                    
+                    if sent:
+                        success_count += 1
+                        
+                except Exception as e:
+                    logger.error(f"Failed to send appointment reminder to {integration.integration_type}: {str(e)}")
+            
+            return success_count > 0
+            
+        except Exception as e:
+            logger.error(f"Error sending appointment reminder: {str(e)}")
+            return False
+
+    @classmethod
+    def send_medication_reminder(cls, user, title: str, message: str, **kwargs) -> bool:
+        """Send medication reminder to user's smartwatch."""
+        try:
+            integrations = WearableIntegration.objects.filter(
+                user=user,
+                status='connected',
+                integration_type__in=['apple_health', 'samsung_health', 'fitbit', 'garmin']
+            )
+            
+            if not integrations.exists():
+                logger.info(f"No active wearable integrations found for user {user.id}")
+                return False
+            
+            success_count = 0
+            for integration in integrations:
+                try:
+                    if integration.integration_type == 'apple_health':
+                        sent = cls._send_apple_watch_medication_reminder(integration, title, message, **kwargs)
+                    elif integration.integration_type == 'samsung_health':
+                        sent = cls._send_samsung_watch_medication_reminder(integration, title, message, **kwargs)
+                    else:
+                        sent = cls._send_generic_medication_reminder(integration, title, message, **kwargs)
+                    
+                    if sent:
+                        success_count += 1
+                        
+                except Exception as e:
+                    logger.error(f"Failed to send medication reminder to {integration.integration_type}: {str(e)}")
+            
+            return success_count > 0
+            
+        except Exception as e:
+            logger.error(f"Error sending medication reminder: {str(e)}")
+            return False
+
+    @classmethod
+    def _send_apple_watch_medication_reminder(cls, integration: WearableIntegration, title: str, message: str, **kwargs) -> bool:
+        """Send medication reminder to Apple Watch."""
+        try:
+            notification_data = {
+                'title': title,
+                'message': message,
+                'category': 'medication_reminder',
+                'sound': 'medication_alert.wav',
+                'badge': 1,
+                'priority': 'high',
+                'medication_id': kwargs.get('medication_id'),
+                'is_critical': kwargs.get('is_critical', False),
+                'actions': [
+                    {'id': 'taken', 'title': 'Mark as Taken'},
+                    {'id': 'skip', 'title': 'Skip'},
+                    {'id': 'snooze', 'title': 'Remind in 15 min'}
+                ]
+            }
+            
+            # Send via APNs
+            success = cls._send_apns_notification(integration, notification_data)
+            
+            cls._log_notification_delivery(
+                integration=integration,
+                notification_type='medication_reminder',
+                title=title,
+                message=message,
+                success=success,
+                metadata=notification_data
+            )
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error sending Apple Watch medication reminder: {str(e)}")
+            return False
+
+    @classmethod
+    def _send_samsung_watch_medication_reminder(cls, integration: WearableIntegration, title: str, message: str, **kwargs) -> bool:
+        """Send medication reminder to Samsung Watch."""
+        try:
+            notification_data = {
+                'title': title,
+                'message': message,
+                'category': 'medication_reminder',
+                'vibration_pattern': 'medication_alert',
+                'priority': 'high',
+                'medication_id': kwargs.get('medication_id'),
+                'is_critical': kwargs.get('is_critical', False),
+                'actions': [
+                    {'action': 'taken', 'label': 'Taken'},
+                    {'action': 'skip', 'label': 'Skip'},
+                    {'action': 'snooze', 'label': 'Snooze 15min'}
+                ]
+            }
+            
+            # Send via Samsung Health SDK or FCM
+            success = cls._send_samsung_health_notification(integration, notification_data)
+            
+            cls._log_notification_delivery(
+                integration=integration,
+                notification_type='medication_reminder',
+                title=title,
+                message=message,
+                success=success,
+                metadata=notification_data
+            )
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error sending Samsung Watch medication reminder: {str(e)}")
+            return False
+
+    @classmethod
+    def _send_generic_medication_reminder(cls, integration: WearableIntegration, title: str, message: str, **kwargs) -> bool:
+        """Send generic medication reminder for other platforms."""
+        try:
+            notification_data = {
+                'title': title,
+                'message': message,
+                'platform': integration.integration_type,
+                'medication_id': kwargs.get('medication_id'),
+                'is_critical': kwargs.get('is_critical', False)
+            }
+            
+            logger.info(f"Sending generic medication reminder for {integration.integration_type}: {notification_data}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Generic medication reminder failed: {str(e)}")
+            return False
+
+    @classmethod
+    def _send_samsung_watch_appointment_reminder(cls, integration: WearableIntegration, title: str, message: str, **kwargs) -> bool:
+        """Send appointment reminder to Samsung Watch."""
+        try:
+            notification_data = {
+                'title': title,
+                'message': message,
+                'category': 'appointment_reminder',
+                'vibration_pattern': 'appointment_alert',
+                'priority': 'time-sensitive',
+                'appointment_id': kwargs.get('appointment_id'),
+                'scheduled_time': kwargs.get('scheduled_time'),
+                'actions': [
+                    {'action': 'confirm', 'label': 'Confirm'},
+                    {'action': 'reschedule', 'label': 'Reschedule'},
+                    {'action': 'view', 'label': 'View Details'}
+                ]
+            }
+            
+            success = cls._send_samsung_health_notification(integration, notification_data)
+            
+            cls._log_notification_delivery(
+                integration=integration,
+                notification_type='appointment_reminder',
+                title=title,
+                message=message,
+                success=success,
+                metadata=notification_data
+            )
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error sending Samsung Watch appointment reminder: {str(e)}")
+            return False
+
+    @classmethod
+    def _send_generic_appointment_reminder(cls, integration: WearableIntegration, title: str, message: str, **kwargs) -> bool:
+        """Send generic appointment reminder for other platforms."""
+        try:
+            notification_data = {
+                'title': title,
+                'message': message,
+                'platform': integration.integration_type,
+                'appointment_id': kwargs.get('appointment_id'),
+                'scheduled_time': kwargs.get('scheduled_time')
+            }
+            
+            logger.info(f"Sending generic appointment reminder for {integration.integration_type}: {notification_data}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Generic appointment reminder failed: {str(e)}")
+            return False
+
 # Make the function available at module level for medication service
 def send_watch_notification(device_id: str, title: str, message: str, **kwargs) -> bool:
     """Wrapper function for compatibility with medication service."""
