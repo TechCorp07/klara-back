@@ -14,10 +14,10 @@ class TelemedicineNotificationService:
     Enhanced notification service for telemedicine appointments.
     Specialized for rare disease patients with caregiver and family notifications.
     """
-    
+
     def __init__(self):
         self.notification_service = NotificationService()
-    
+
     def send_appointment_confirmation(self, appointment: Appointment) -> bool:
         """Send appointment confirmation with rare disease specific information."""
         try:
@@ -51,6 +51,76 @@ class TelemedicineNotificationService:
             logger.error(f"Error sending appointment confirmation: {str(e)}")
             return False
     
+    def send_appointment_reminder(self, appointment: Appointment) -> bool:
+        """Send appointment reminder 24 hours before scheduled time."""
+        try:
+            patient = appointment.patient
+            
+            # Prepare reminder data
+            notification_data = {
+                'appointment_id': str(appointment.id),
+                'patient_name': patient.get_full_name(),
+                'provider_name': appointment.provider.get_full_name(),
+                'appointment_type': appointment.get_appointment_type_display(),
+                'scheduled_time': appointment.scheduled_time.strftime('%B %d, %Y at %I:%M %p'),
+                'duration': appointment.duration_minutes,
+                'is_telemedicine': appointment.is_telemedicine,
+                'rare_condition_focus': self._is_rare_condition_appointment(appointment)
+            }
+            
+            # Get patient notification preferences
+            notification_methods = []
+            if hasattr(patient, 'patient_profile'):
+                notification_methods = patient.patient_profile.appointment_reminder_methods
+            
+            if not notification_methods:
+                notification_methods = ['email', 'push']  # Default
+            
+            success = True
+            
+            # Send email reminder
+            if 'email' in notification_methods:
+                email_success = self.notification_service.send_email(
+                    recipient=patient.email,
+                    subject=f"Appointment Reminder - {appointment.scheduled_time.strftime('%B %d')}",
+                    template='appointment_reminder',
+                    context=notification_data
+                )
+                success = success and email_success
+            
+            # Send push notification
+            if 'push' in notification_methods:
+                push_success = self.notification_service.send_push_notification(
+                    user=patient,
+                    title="Upcoming Appointment",
+                    message=f"Reminder: You have an appointment with {appointment.provider.get_full_name()} tomorrow",
+                    data={
+                        'type': 'appointment_reminder',
+                        'appointment_id': notification_data['appointment_id']
+                    }
+                )
+                success = success and push_success
+            
+            # Send SMS reminder
+            if 'sms' in notification_methods and hasattr(patient, 'phone_number'):
+                sms_success = self.notification_service.send_sms(
+                    phone_number=patient.phone_number,
+                    message=f"Appointment reminder: {notification_data['appointment_type']} with {notification_data['provider_name']} on {notification_data['scheduled_time']}"
+                )
+                success = success and sms_success
+            
+            # Mark reminder as sent
+            if success:
+                appointment.reminder_sent = True
+                appointment.reminder_sent_time = timezone.now()
+                appointment.save(update_fields=['reminder_sent', 'reminder_sent_time'])
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error sending appointment reminder: {str(e)}")
+            return False
+
     def send_medication_reminder_during_consultation(self, consultation: Consultation, 
                                                    medication_info: Dict[str, Any]) -> bool:
         """Send medication reminder during active consultation."""

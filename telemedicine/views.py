@@ -64,25 +64,34 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         """Filter appointments based on user role."""
         # Check if this is a schema generation request
         if getattr(self, 'swagger_fake_view', False):
-            # Return an empty queryset for swagger schema generation
             return self.queryset.model.objects.none()
                 
         user = self.request.user
         queryset = super().get_queryset()
         
+        # Add debug logging
+        logger.info(f"🔍 [AppointmentViewSet] User: {user.id}, Role: {user.role}")
+        logger.info(f"🔍 [AppointmentViewSet] Total appointments in DB: {queryset.count()}")
+        
         # Filter based on user role
         if user.role == 'patient':
-            return queryset.filter(patient=user)
+            filtered_queryset = queryset.filter(patient=user)
+            logger.info(f"🔍 [AppointmentViewSet] Patient appointments: {filtered_queryset.count()}")
+            return filtered_queryset
         elif user.role == 'provider':
-            return queryset.filter(provider=user)
+            filtered_queryset = queryset.filter(provider=user)
+            logger.info(f"🔍 [AppointmentViewSet] Provider appointments: {filtered_queryset.count()}")
+            return filtered_queryset
         elif user.role == 'caregiver' and hasattr(user, 'caregiver_profile'):
-            # Get patients this caregiver is authorized for
             authorized_patients = user.caregiver_patients.all()
-            return queryset.filter(patient__in=authorized_patients)
+            filtered_queryset = queryset.filter(patient__in=authorized_patients)
+            logger.info(f"🔍 [AppointmentViewSet] Caregiver appointments: {filtered_queryset.count()}")
+            return filtered_queryset
         
         # Admin can see all
+        logger.info(f"🔍 [AppointmentViewSet] Admin view - all appointments: {queryset.count()}")
         return queryset
-    
+        
     def get_permissions(self):
         """Adjust permissions based on action."""
         if self.action in ['create', 'update', 'partial_update', 'destroy']:

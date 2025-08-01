@@ -313,6 +313,80 @@ class WearableNotificationService:
         
         return results
 
+    @classmethod
+    def send_appointment_reminder(cls, user, title: str, message: str, **kwargs) -> bool:
+        """Send appointment reminder to user's smartwatch."""
+        try:
+            integrations = WearableIntegration.objects.filter(
+                user=user,
+                is_active=True,
+                integration_type__in=['apple_watch', 'samsung_watch', 'fitbit', 'garmin']
+            )
+            
+            if not integrations.exists():
+                logger.info(f"No active wearable integrations found for user {user.id}")
+                return False
+            
+            success_count = 0
+            for integration in integrations:
+                try:
+                    if integration.integration_type == 'apple_watch':
+                        sent = cls._send_apple_watch_appointment_reminder(integration, title, message, **kwargs)
+                    elif integration.integration_type == 'samsung_watch':
+                        sent = cls._send_samsung_watch_appointment_reminder(integration, title, message, **kwargs)
+                    else:
+                        sent = cls._send_generic_appointment_reminder(integration, title, message, **kwargs)
+                    
+                    if sent:
+                        success_count += 1
+                        
+                except Exception as e:
+                    logger.error(f"Failed to send appointment reminder to {integration.integration_type}: {str(e)}")
+            
+            return success_count > 0
+            
+        except Exception as e:
+            logger.error(f"Error sending appointment reminder: {str(e)}")
+            return False
+
+    @classmethod
+    def _send_apple_watch_appointment_reminder(cls, integration: WearableIntegration, title: str, message: str, **kwargs) -> bool:
+        """Send appointment reminder to Apple Watch."""
+        try:
+            notification_data = {
+                'title': title,
+                'message': message,
+                'category': 'appointment_reminder',
+                'sound': 'appointment_alert.wav',
+                'badge': 1,
+                'priority': 'time-sensitive',
+                'appointment_id': kwargs.get('appointment_id'),
+                'scheduled_time': kwargs.get('scheduled_time'),
+                'actions': [
+                    {'id': 'confirm', 'title': 'Confirm Attendance'},
+                    {'id': 'reschedule', 'title': 'Need to Reschedule'},
+                    {'id': 'view_details', 'title': 'View Details'}
+                ]
+            }
+            
+            # Send via APNs
+            success = cls._send_apns_notification(integration, notification_data)
+            
+            cls._log_notification_delivery(
+                integration=integration,
+                notification_type='appointment_reminder',
+                title=title,
+                message=message,
+                success=success,
+                metadata=notification_data
+            )
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error sending Apple Watch appointment reminder: {str(e)}")
+            return False
+  
 # Make the function available at module level for medication service
 def send_watch_notification(device_id: str, title: str, message: str, **kwargs) -> bool:
     """Wrapper function for compatibility with medication service."""

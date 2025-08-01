@@ -5,7 +5,7 @@ from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Q
 from .services.rare_disease_consultation import RareDiseaseConsultationService
-from .services.notification_service import telemedicine_notifications
+from .services.notifications_service import telemedicine_notifications
 from healthcare.models import Medication
 
 from .models import (
@@ -19,21 +19,12 @@ logger = logging.getLogger(__name__)
 
 @shared_task
 def send_appointment_reminders():
-    """
-    Task to send reminders for upcoming appointments.
-    
-    Sends reminders for appointments that:
-    - Are scheduled in the next 24 hours
-    - Have not already had a reminder sent
-    - Are not cancelled or completed
-    """
+    """Enhanced appointment reminders with smartwatch support."""
     logger.info("Starting appointment reminder task")
     
-    # Time range for reminders: now to 24 hours from now
     now = timezone.now()
     reminder_window_end = now + timedelta(hours=24)
     
-    # Find appointments needing reminders
     upcoming_appointments = Appointment.objects.filter(
         scheduled_time__gt=now,
         scheduled_time__lte=reminder_window_end,
@@ -46,14 +37,26 @@ def send_appointment_reminders():
     
     for appointment in upcoming_appointments:
         try:
-            # Send email reminder
-            sent = notifications_service.send_appointment_reminder(appointment)
+            # Use your existing telemedicine notification service
+            sent = telemedicine_notifications.send_appointment_reminder(appointment)
             
-            # Also try SMS if configured
+            # Also send smartwatch notification if patient has wearable integration
             try:
-                notifications_service.send_sms_reminder(appointment)
-            except Exception as sms_error:
-                logger.warning(f"SMS reminder failed for appointment {appointment.id}: {str(sms_error)}")
+                if hasattr(appointment.patient, 'patient_profile') and \
+                   appointment.patient.patient_profile.smartwatch_integration_active:
+                    
+                    from wearables.services.notification_service import WearableNotificationService
+                    
+                    WearableNotificationService.send_appointment_reminder(
+                        user=appointment.patient,
+                        title=f"Appointment Reminder",
+                        message=f"You have an appointment with {appointment.provider.get_full_name()} in {(appointment.scheduled_time - now).total_seconds() // 3600:.0f} hours",
+                        appointment_id=appointment.id,
+                        scheduled_time=appointment.scheduled_time.isoformat()
+                    )
+                    
+            except Exception as smartwatch_error:
+                logger.warning(f"Smartwatch reminder failed for appointment {appointment.id}: {str(smartwatch_error)}")
             
             if sent:
                 success_count += 1
