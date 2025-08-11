@@ -249,7 +249,7 @@ class IsPatientWithTelemedicineAccess(permissions.BasePermission):
             try:
                 consent = HealthDataConsent.objects.filter(
                     patient=request.user,
-                    consent_type='telemedicine',
+                    consent_type='telemedicine_services',
                     consented=True
                 ).exists()
                 

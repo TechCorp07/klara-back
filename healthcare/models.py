@@ -700,6 +700,7 @@ class HealthDataConsent(models.Model):
         ('medication_tracking', 'Medication Adherence Tracking'),
         ('vitals_monitoring', 'Vitals Monitoring'),
         ('wearable_integration', 'Wearable Device Integration'),
+        ('telemedicine_services', 'Telemedicine Services'),
     ]
     
     patient = models.ForeignKey(
