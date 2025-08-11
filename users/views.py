@@ -3656,7 +3656,7 @@ class ProviderProfileViewSet(BaseViewSet):
             providers = User.objects.filter(
                 role='provider',
                 is_active=True,
-                approval_status='approved'  # Only approved providers
+                is_approved=True
             ).select_related('provider_profile')
             
             # Filter out providers who aren't accepting new patients (if that field exists)
