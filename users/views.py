@@ -3647,7 +3647,49 @@ class ProviderProfileViewSet(BaseViewSet):
         }
         
         return Response(dashboard_data)
-
+    
+    @action(detail=False, methods=['get'], url_path='available')
+    def get_available_providers(self, request):
+        """Get list of available providers for appointment scheduling."""
+        try:
+            # Get providers who are active and have completed profiles
+            providers = User.objects.filter(
+                role='provider',
+                is_active=True,
+                approval_status='approved'  # Only approved providers
+            ).select_related('provider_profile')
+            
+            # Filter out providers who aren't accepting new patients (if that field exists)
+            available_providers = []
+            for provider in providers:
+                try:
+                    profile = provider.provider_profile
+                    # Only include if they're accepting patients or have telemedicine available
+                    if hasattr(profile, 'accepting_new_patients'):
+                        if not profile.accepting_new_patients and not getattr(profile, 'telemedicine_available', False):
+                            continue
+                except:
+                    # Include providers without profiles for now
+                    pass
+                
+                available_providers.append({
+                    'id': provider.id,
+                    'name': f"{provider.first_name} {provider.last_name}",
+                    'email': provider.email,
+                    'specialty': getattr(provider.provider_profile, 'specialty', 'General Medicine') if hasattr(provider, 'provider_profile') else 'General Medicine',
+                    'accepting_patients': getattr(provider.provider_profile, 'accepting_new_patients', True) if hasattr(provider, 'provider_profile') else True,
+                    'telemedicine_available': getattr(provider.provider_profile, 'telemedicine_available', False) if hasattr(provider, 'provider_profile') else False
+                })
+            
+            return Response(available_providers, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error fetching available providers: {str(e)}")
+            return Response(
+                {"error": "Failed to fetch available providers"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
     @action(detail=True, methods=['post'])
     def complete_profile(self, request, pk=None):
         """Complete provider profile with additional information."""

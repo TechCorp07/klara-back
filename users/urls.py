@@ -125,7 +125,11 @@ urlpatterns = [
     path('patient/emergency/notify/', PatientViewSet.as_view({'post': 'emergency_notification'}), name='patient-emergency-notification'),
     
     #dashboard endpoints
-    path('provider/dashboard/', ProviderProfileViewSet.as_view({'get': 'dashboard'}), name='provider-dashboard'),     
+    path('provider-profiles/<int:pk>/complete/', ProviderProfileViewSet.as_view({'post': 'complete_profile'}), name='complete-provider-profile'),
+    path('provider/dashboard/', ProviderProfileViewSet.as_view({'get': 'dashboard'}), name='provider-dashboard'),
+    path('provider/available/', ProviderProfileViewSet.as_view({'get': 'get_available_providers'}), name='available-providers'),
+    
+    
     path('pharmco/dashboard/', PharmcoProfileViewSet.as_view({'get': 'dashboard'}), name='pharmco-dashboard'),       
     #path('researcher/dashboard/', ResearcherViewSet.as_view({'get': 'dashboard'}), name='researcher-dashboard'),
     #path('caregiver/dashboard/', CaregiverViewSet.as_view({'get': 'dashboard'}), name='caregiver-dashboard'),
@@ -154,7 +158,6 @@ urlpatterns = [
     
     # Profile completion endpoints
     path('patient-profiles/<int:pk>/complete/', PatientProfileViewSet.as_view({'post': 'complete_profile'}), name='complete-patient-profile'),
-    path('provider-profiles/<int:pk>/complete/', ProviderProfileViewSet.as_view({'post': 'complete_profile'}), name='complete-provider-profile'),
     path('pharmco-profiles/<int:pk>/complete/', PharmcoProfileViewSet.as_view({'post': 'complete_profile'}), name='complete-pharmco-profile'),
     path('caregiver-profiles/<int:pk>/complete/', CaregiverProfileViewSet.as_view({'post': 'complete_profile'}), name='complete-caregiver-profile'),
     path('researcher-profiles/<int:pk>/complete/', ResearcherProfileViewSet.as_view({'post': 'complete_profile'}), name='complete-researcher-profile'),
