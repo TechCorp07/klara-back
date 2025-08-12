@@ -114,6 +114,97 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         """Update appointment with proper metadata."""
         serializer.save(updated_by=self.request.user)
     
+    def perform_create(self, serializer):
+        """Create appointment with automatic telemedicine setup if needed."""
+        # Save the appointment first
+        appointment = serializer.save(created_by=self.request.user, updated_by=self.request.user)
+        
+        try:
+            # Send initial confirmation notification
+            notifications_service.send_appointment_confirmation(appointment)
+            
+            # 🆕 AUTO-ACTIVATE TELEMEDICINE if checkbox was checked
+            if appointment.is_telemedicine:
+                self._auto_activate_telemedicine_workflow(appointment)
+                
+        except Exception as e:
+            logger.error(f"Failed to send confirmation notification: {str(e)}")
+
+    def _auto_activate_telemedicine_workflow(self, appointment):
+        """Automatically activate telemedicine workflow when appointment is created."""
+        try:
+            # Use default platform (can be made configurable)
+            platform_preference = 'zoom'
+            
+            # Create consultation
+            consultation, created = Consultation.objects.get_or_create(
+                appointment=appointment,
+                defaults={
+                    'platform': platform_preference,
+                    'status': Consultation.Status.SCHEDULED
+                }
+            )
+            
+            if created or not consultation.join_url:
+                # Use existing platform service to create meeting
+                from .services.platform_service import create_meeting
+                meeting_data = create_meeting(
+                    consultation=consultation,
+                    platform=platform_preference,
+                    organizer_email=appointment.provider.email,
+                    patient_email=appointment.patient.email
+                )
+                
+                # Update consultation with meeting details
+                consultation.meeting_id = meeting_data.get('meeting_id')
+                consultation.join_url = meeting_data.get('join_url')
+                consultation.password = meeting_data.get('password')
+                consultation.host_key = meeting_data.get('host_key')
+                consultation.platform_data = meeting_data
+                consultation.save()
+                
+                # Send calendar invites
+                from .services.calendar_service import CalendarService
+                CalendarService.send_calendar_invite(
+                    appointment=appointment,
+                    meeting_url=consultation.join_url,
+                    meeting_id=consultation.meeting_id
+                )
+                
+                # Enhanced notification with meeting details
+                from .services.notifications_service import telemedicine_notifications
+                telemedicine_notifications.send_appointment_confirmation_with_calendar(appointment)
+                
+                logger.info(f"Telemedicine workflow auto-activated for appointment {appointment.id}")
+                
+                from .tasks import send_telemedicine_reminder
+                # 24-hour reminder
+                reminder_24h = appointment.scheduled_time - timedelta(hours=24)
+                if reminder_24h > timezone.now():
+                    send_telemedicine_reminder.apply_async(
+                        args=[appointment.id, '24_hour'],
+                        eta=reminder_24h
+                    )
+
+                # 1-hour reminder  
+                reminder_1h = appointment.scheduled_time - timedelta(hours=1)
+                if reminder_1h > timezone.now():
+                    send_telemedicine_reminder.apply_async(
+                        args=[appointment.id, '1_hour'],
+                        eta=reminder_1h
+                    )
+
+                # 15-minute reminder
+                reminder_15m = appointment.scheduled_time - timedelta(minutes=15)
+                if reminder_15m > timezone.now():
+                    send_telemedicine_reminder.apply_async(
+                        args=[appointment.id, '15_minute'],
+                        eta=reminder_15m
+                    )
+                
+        except Exception as e:
+            logger.error(f"Failed to auto-activate telemedicine for appointment {appointment.id}: {str(e)}")
+        
     @action(detail=False, methods=['get'])
     def upcoming(self, request):
         """Get upcoming appointments."""

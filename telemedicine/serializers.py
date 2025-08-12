@@ -30,6 +30,9 @@ class AppointmentSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     appointment_type_display = serializers.CharField(source='get_appointment_type_display', read_only=True)
     priority_display = serializers.CharField(source='get_priority_display', read_only=True)
+    meeting_url = serializers.SerializerMethodField()
+    meeting_id = serializers.SerializerMethodField()
+    telemedicine_ready = serializers.SerializerMethodField()
     
     class Meta:
         model = Appointment
@@ -48,6 +51,27 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'status_display', 'appointment_type_display', 'priority_display'
         )
         
+    def get_meeting_url(self, obj):
+        """Get meeting URL if telemedicine appointment has consultation."""
+        if obj.is_telemedicine:
+            consultation = obj.consultations.first()
+            return consultation.join_url if consultation else None
+        return None
+    
+    def get_meeting_id(self, obj):
+        """Get meeting ID if telemedicine appointment has consultation."""
+        if obj.is_telemedicine:
+            consultation = obj.consultations.first()
+            return consultation.meeting_id if consultation else None
+        return None
+    
+    def get_telemedicine_ready(self, obj):
+        """Check if telemedicine setup is complete."""
+        if obj.is_telemedicine:
+            consultation = obj.consultations.first()
+            return bool(consultation and consultation.join_url)
+        return False
+    
     def validate(self, data):
         """
         Validate appointment data.

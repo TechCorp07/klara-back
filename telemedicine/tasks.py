@@ -501,3 +501,87 @@ def send_appointment_reminders_sync():
     
     logger.info(f"Appointment reminder task completed: {success_count} sent, {failure_count} failed")
     return f"{success_count} reminders sent, {failure_count} failed"
+
+@shared_task
+def send_telemedicine_reminder(appointment_id: int, reminder_type: str):
+    """Send enhanced telemedicine appointment reminders."""
+    try:
+        appointment = Appointment.objects.select_related(
+            'patient', 'provider', 'medical_record'
+        ).get(id=appointment_id)
+        
+        consultation = appointment.consultations.first()
+        if not consultation:
+            logger.warning(f"No consultation found for appointment {appointment_id}")
+            return
+        
+        # Prepare reminder context
+        context = {
+            'appointment': appointment,
+            'consultation': consultation,
+            'reminder_type': reminder_type,
+            'patient_name': appointment.patient.get_full_name(),
+            'provider_name': appointment.provider.get_full_name(),
+            'appointment_time': appointment.scheduled_time,
+            'meeting_url': consultation.join_url,
+            'meeting_id': consultation.meeting_id,
+            'platform': consultation.get_platform_display(),
+            'is_rare_condition': appointment.medical_record.has_rare_condition if appointment.medical_record else False
+        }
+        
+        notification_service = telemedicine_notifications.notification_service
+        
+        # Send to patient
+        patient_success = notification_service.send_email(
+            recipient=appointment.patient.email,
+            subject=f"Telemedicine Reminder: Appointment in {_get_time_description(reminder_type)}",
+            template='telemedicine_patient_reminder',
+            context=context
+        )
+        
+        # Send push notification for mobile users
+        if reminder_type == '15_minute':
+            notification_service.send_push_notification(
+                user=appointment.patient,
+                title="Appointment Starting Soon",
+                message=f"Your consultation with {appointment.provider.get_full_name()} starts in 15 minutes",
+                data={
+                    'type': 'appointment_reminder',
+                    'appointment_id': appointment.id,
+                    'meeting_url': consultation.join_url
+                }
+            )
+        
+        # Send to provider
+        provider_success = notification_service.send_email(
+            recipient=appointment.provider.email,
+            subject=f"Patient Appointment Reminder: {appointment.patient.get_full_name()}",
+            template='telemedicine_provider_reminder',
+            context=context
+        )
+        
+        # Send to caregivers for rare condition patients
+        caregiver_notifications = 0
+        if appointment.medical_record and appointment.medical_record.has_rare_condition:
+            caregiver_notifications = telemedicine_notifications._send_caregiver_notifications(
+                appointment.patient, context, 'telemedicine_reminder'
+            )
+        
+        return f"Telemedicine reminder ({reminder_type}) sent - Patient: {patient_success}, Provider: {provider_success}, Caregivers: {caregiver_notifications}"
+        
+    except Appointment.DoesNotExist:
+        logger.error(f"Appointment {appointment_id} not found")
+        return f"Appointment {appointment_id} not found"
+    except Exception as e:
+        logger.error(f"Error sending telemedicine reminder: {str(e)}")
+        return f"Error: {str(e)}"
+
+def _get_time_description(reminder_type: str) -> str:
+    """Get human-readable time description for reminder type."""
+    descriptions = {
+        '24_hour': '24 hours',
+        '1_hour': '1 hour', 
+        '15_minute': '15 minutes'
+    }
+    return descriptions.get(reminder_type, 'soon')
+

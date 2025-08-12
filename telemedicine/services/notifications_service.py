@@ -359,6 +359,28 @@ class TelemedicineNotificationService:
         except Exception as e:
             logger.error(f"Error sending patient confirmation: {str(e)}")
             return False
+        
+    def send_appointment_confirmation_with_calendar(self, appointment: Appointment) -> bool:
+        """Enhanced confirmation that includes calendar invite."""
+        try:
+            # Use existing confirmation method
+            confirmation_sent = self.send_appointment_confirmation(appointment)
+            
+            # Add calendar invite if telemedicine and has consultation
+            consultation = appointment.consultations.first()
+            if appointment.is_telemedicine and consultation and consultation.join_url:
+                from .calendar_service import CalendarService
+                CalendarService.send_calendar_invite(
+                    appointment=appointment,
+                    meeting_url=consultation.join_url,
+                    meeting_id=consultation.meeting_id
+                )
+            
+            return confirmation_sent
+            
+        except Exception as e:
+            logger.error(f"Enhanced confirmation failed: {str(e)}")
+            return False
 
-# Create service instance for use by other modules
+
 telemedicine_notifications = TelemedicineNotificationService()
