@@ -2790,46 +2790,49 @@ class PatientViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def send_message_to_provider(self, request):
         """Send message to a provider."""
-        from communication.models import Conversation, Message
-        from communication.serializers import ConversationSerializer, MessageSerializer
-        
-        recipient_id = request.data.get('recipient')
-        subject = request.data.get('subject', 'Message from patient')
-        content = request.data.get('message')
-        
-        if not recipient_id or not content:
-            return Response(
-                {'detail': 'Recipient and message content are required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
         try:
-            # Get the provider
-            provider = User.objects.get(id=recipient_id, role='provider')
+            from communication.models import Conversation, Message
+            from django.contrib.auth import get_user_model
             
+            User = get_user_model()
+            
+            recipient_id = request.data.get('recipient')
+            subject = request.data.get('subject', 'Message from patient')
+            content = request.data.get('message')
+            
+            if not recipient_id or not content:
+                return Response(
+                    {'detail': 'Recipient and message content are required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get the provider
+            try:
+                provider = User.objects.get(id=recipient_id, role='provider')
+            except User.DoesNotExist:
+                return Response(
+                    {'detail': 'Provider not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
             # Create or get conversation
             conversation, created = Conversation.objects.get_or_create(
                 defaults={'subject': subject}
             )
             conversation.participants.add(request.user, provider)
-            
+                
             # Create message
             message = Message.objects.create(
                 conversation=conversation,
                 sender=request.user,
                 content=content
             )
-            
+                
             # Send notification to provider
             # Add your notification logic here
-            
+                
             return Response({'detail': 'Message sent successfully'})
             
-        except User.DoesNotExist:
-            return Response(
-                {'detail': 'Provider not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
         except Exception as e:
             logger.error(f"Error sending message: {str(e)}")
             return Response(

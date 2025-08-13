@@ -13,6 +13,7 @@ from healthcare.models import VitalSign
 from wearables.models import WearableMeasurement
 from .services.rare_disease_consultation import RareDiseaseConsultationService
 from .services.notifications_service import telemedicine_notifications
+from .services import notifications_service
 
 from .models import (
     Appointment, Consultation, Prescription, 
@@ -305,7 +306,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 notify_participants = serializer.validated_data.get('notify_participants', True)
                 if notify_participants:
                     try:
-                        notifications_service.send_appointment_cancellation(
+                        telemedicine_notifications.send_appointment_cancellation(
                             appointment=appointment,
                             reason=reason,
                             notify_provider=True
@@ -347,7 +348,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 notify_participants = serializer.validated_data.get('notify_participants', True)
                 if notify_participants:
                     try:
-                        notifications_service.send_appointment_confirmation(appointment)
+                        telemedicine_notifications.send_appointment_confirmation(appointment)
                     except Exception as e:
                         logger.error(f"Failed to send reschedule notification: {str(e)}")
                 
@@ -1030,7 +1031,6 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
         
         # Send notification to patient
         try:
-            from .services import notifications_service
             prescription = serializer.instance
             notifications_service.send_prescription_notification(prescription)
         except Exception as e:

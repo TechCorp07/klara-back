@@ -1,3 +1,4 @@
+from datetime import timedelta
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -284,7 +285,6 @@ class ConsultationNoteSerializer(serializers.ModelSerializer):
         )
 
 
-# Specialized action serializers
 class JoinInfoSerializer(serializers.Serializer):
     """Serializer for consultation join information."""
     meeting_id = serializers.CharField()
@@ -303,28 +303,29 @@ class CancelAppointmentSerializer(serializers.Serializer):
 class RescheduleAppointmentSerializer(serializers.Serializer):
     """Serializer for rescheduling appointments."""
     new_scheduled_time = serializers.DateTimeField(required=True)
-    new_end_time = serializers.DateTimeField(required=True)
-    reason = serializers.CharField(required=False, allow_blank=True)
+    new_end_time = serializers.DateTimeField(required=False)
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True)
     notify_participants = serializers.BooleanField(default=True)
     
+    def validate_new_scheduled_time(self, value):
+        """Validate that the new scheduled time is in the future."""
+        if value <= timezone.now():
+            raise serializers.ValidationError("New scheduled time must be in the future.")
+        return value
+    
     def validate(self, data):
-        """
-        Validate rescheduling data.
-        - New end time must be after new start time
-        - Cannot reschedule in the past
-        """
-        if data['new_end_time'] <= data['new_scheduled_time']:
-            raise serializers.ValidationError(
-                {"new_end_time": "End time must be after scheduled time"}
-            )
-            
-        # Check if new appointment time is in the past
-        now = timezone.now()
-        if data['new_scheduled_time'] < now:
-            raise serializers.ValidationError(
-                {"new_scheduled_time": "Cannot reschedule appointments in the past"}
-            )
-            
+        """Cross-field validation."""
+        new_scheduled_time = data.get('new_scheduled_time')
+        new_end_time = data.get('new_end_time')
+        
+        # Auto-calculate end time if not provided (30 minutes default)
+        if not new_end_time and new_scheduled_time:
+            data['new_end_time'] = new_scheduled_time + timedelta(minutes=30)
+        elif new_end_time and new_scheduled_time:
+            # Validate that end time is after start time
+            if new_end_time <= new_scheduled_time:
+                raise serializers.ValidationError("End time must be after start time.")
+        
         return data
 
 

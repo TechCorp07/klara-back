@@ -116,6 +116,7 @@ urlpatterns = [
     
     # Telemedicine endpoints
     path('patient/telemedicine/request/', PatientViewSet.as_view({'post': 'request_telemedicine_session'}), name='patient-telemedicine-request'),
+    path('patient/send_message_to_provider/', PatientViewSet.as_view({'post': 'send_message_to_provider'}), name='patient-send-message-provider'),
     
     # Chat groups endpoints
     path('patient/chat-groups/', PatientViewSet.as_view({'get': 'chat_groups'}), name='patient-chat-groups'),
