@@ -5,13 +5,14 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.db.models import Q, F
 from django.contrib.auth import get_user_model
-from .services.rare_disease_consultation import RareDiseaseConsultationService
-#from .services.notification_service import telemedicine_notifications
-
 from rest_framework import viewsets, status, filters, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
+from healthcare.models import VitalSign
+from wearables.models import WearableMeasurement
+from .services.rare_disease_consultation import RareDiseaseConsultationService
+from .services.notifications_service import telemedicine_notifications
 
 from .models import (
     Appointment, Consultation, Prescription, 
@@ -33,11 +34,8 @@ from .permissions import (
     CanPrescribe, IsPatientWithTelemedicineAccess, CanViewHealthData
 )
 from .services import (
-    zoom_service, notifications_service, scheduling_service
+    zoom_service, scheduling_service
 )
-
-from healthcare.models import VitalSign
-from wearables.models import WearableMeasurement
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -111,7 +109,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         
         try:
             # Send initial confirmation notification
-            notifications_service.send_appointment_confirmation(appointment)
+            telemedicine_notifications.send_appointment_confirmation(appointment)
             
             # 🆕 AUTO-ACTIVATE TELEMEDICINE if checkbox was checked
             if appointment.is_telemedicine:
@@ -177,7 +175,6 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 )
                 
                 # Enhanced notification with meeting details
-                from .services.notifications_service import telemedicine_notifications
                 telemedicine_notifications.send_appointment_confirmation_with_calendar(appointment)
                 
                 logger.info(f"Telemedicine workflow auto-activated for appointment {appointment.id}")
@@ -1024,6 +1021,7 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
         
         # Send notification to patient
         try:
+            from .services import notifications_service
             prescription = serializer.instance
             notifications_service.send_prescription_notification(prescription)
         except Exception as e:
