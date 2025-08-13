@@ -274,6 +274,9 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         serializer = CancelAppointmentSerializer(data=request.data)
         
         if serializer.is_valid():
+            reason = serializer.validated_data.get('reason', 'Patient cancellation')
+            cancel_zoom = serializer.validated_data.get('cancel_zoom_meeting', True)
+            
             try:
                 # Check if appointment can be cancelled
                 if appointment.status in ['completed', 'cancelled', 'no_show']:
@@ -282,15 +285,21 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_400_BAD_REQUEST
                     )
                 
-                # Get cancellation reason
-                reason = serializer.validated_data.get('reason', '')
-                
                 # Cancel appointment using service
                 appointment = scheduling_service.cancel_appointment(
                     appointment=appointment,
                     reason=reason,
                     cancelled_by=request.user
                 )
+                
+                # Cancel Zoom meeting if it exists and flag is True
+                if cancel_zoom and hasattr(appointment, 'consultation') and appointment.consultation:
+                    consultation = appointment.consultation
+                    if consultation.platform == 'zoom' and consultation.meeting_id:
+                        try:
+                            zoom_service.delete_zoom_meeting(consultation.meeting_id)
+                        except Exception as e:
+                            logger.warning(f"Failed to cancel Zoom meeting: {str(e)}")
                 
                 # Send cancellation notifications
                 notify_participants = serializer.validated_data.get('notify_participants', True)

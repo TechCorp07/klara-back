@@ -1950,289 +1950,6 @@ class PatientProfileViewSet(BaseViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
 
 
-class CaregiverRequestViewSet(BaseViewSet):
-    """ViewSet for caregiver-patient relationship requests."""
-    queryset = CaregiverRequest.objects.all()
-    serializer_class = CaregiverRequestSerializer
-    permission_classes = [IsAuthenticated]
-    
-    def get_queryset(self):
-        # Fix for Swagger schema generation
-        if getattr(self, 'swagger_fake_view', False):
-            return CaregiverRequest.objects.none()
-        
-        user = self.request.user
-        
-        # Check if user is authenticated and has role attribute
-        if not user.is_authenticated or not hasattr(user, 'role'):
-            return CaregiverRequest.objects.none()
-        
-        if user.role == 'patient':
-            return CaregiverRequest.objects.filter(patient=user)
-        elif user.role == 'caregiver':
-            return CaregiverRequest.objects.filter(caregiver=user)
-        elif user.is_staff:
-            return CaregiverRequest.objects.all()
-        
-        return CaregiverRequest.objects.none()
-
-    @action(detail=True, methods=['post'])
-    def approve(self, request, pk=None):
-        """Approve caregiver request (patient only)."""
-        caregiver_request = self.get_object()
-        
-        if request.user != caregiver_request.patient:
-            return Response({
-                'detail': 'Only the patient can approve this request'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        caregiver_request.approve()
-        
-        # Create consent record
-        ConsentRecord.objects.create(
-            user=request.user,
-            consent_type='CAREGIVER_ACCESS',
-            consented=True,
-            signature_ip=self.get_client_ip(request),
-            signature_user_agent=self.get_user_agent(request)
-        )
-        
-        # Notify caregiver
-        EmailService.send_caregiver_approval(caregiver_request.caregiver, request.user)
-        
-        return Response({'detail': 'Caregiver request approved'})
-
-    @action(detail=True, methods=['post'])
-    def deny(self, request, pk=None):
-        """Deny caregiver request (patient only)."""
-        caregiver_request = self.get_object()
-        
-        if request.user != caregiver_request.patient:
-            return Response({
-                'detail': 'Only the patient can deny this request'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        reason = request.data.get('reason', '')
-        caregiver_request.deny(reason)
-        
-        # Notify caregiver
-        EmailService.send_caregiver_denial(caregiver_request.caregiver, request.user, reason)
-        
-        return Response({'detail': 'Caregiver request denied'})
-
-
-class EmergencyAccessViewSet(BaseViewSet):
-    """ViewSet for emergency PHI access."""
-    queryset = EmergencyAccess.objects.all()
-    serializer_class = EmergencyAccessSerializer
-    permission_classes = [IsAuthenticated]
-    
-    def get_queryset(self):
-        # Fix for Swagger schema generation
-        if getattr(self, 'swagger_fake_view', False):
-            return EmergencyAccess.objects.none()
-        
-        user = self.request.user
-        
-        # Check if user is authenticated and has role attribute
-        if not user.is_authenticated or not hasattr(user, 'role'):
-            return EmergencyAccess.objects.none()
-        
-        if user.is_staff or user.role in ['admin', 'compliance']:
-            return EmergencyAccess.objects.all()
-        elif user.role == 'provider':
-            return EmergencyAccess.objects.filter(requester=user)
-        
-        return EmergencyAccess.objects.none()
-
-    @action(detail=False, methods=['post'])
-    def initiate(self, request):
-        """Initiate emergency access."""
-        if request.user.role not in ['provider', 'admin', 'compliance']:
-            return Response({
-                'detail': 'Only authorized personnel can initiate emergency access'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        emergency_access = serializer.save(
-            requester=request.user,
-            ip_address=self.get_client_ip(request),
-            user_agent=self.get_user_agent(request)
-        )
-        
-        # Send notifications
-        EmailService.send_emergency_access_notification(emergency_access)
-        
-        self.log_security_event(
-            user=request.user,
-            event_type="EMERGENCY_ACCESS_INITIATED",
-            description=f"Emergency access initiated: {emergency_access.reason}",
-            request=request
-        )
-        
-        return Response({
-            'detail': 'Emergency access initiated',
-            'access_id': emergency_access.id,
-            'expires_in': '4 hours'
-        })
-
-    @action(detail=True, methods=['post'])
-    def end_access(self, request, pk=None):
-        """End emergency access."""
-        emergency_access = self.get_object()
-        
-        if request.user != emergency_access.requester:
-            return Response({
-                'detail': 'Only the requester can end access'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        phi_summary = request.data.get('phi_accessed', '')
-        emergency_access.end_access(phi_summary)
-        
-        self.log_security_event(
-            user=request.user,
-            event_type="EMERGENCY_ACCESS_ENDED",
-            description=f"Emergency access ended",
-            request=request
-        )
-        
-        return Response({'detail': 'Emergency access ended'})
-
-    @action(detail=True, methods=['post'])
-    def review(self, request, pk=None):
-        """Review emergency access (compliance only)."""
-        if request.user.role not in ['admin', 'compliance']:
-            return Response({
-                'detail': 'Only compliance officers can review emergency access'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        emergency_access = self.get_object()
-        notes = request.data.get('notes', '')
-        justified = request.data.get('justified')
-        
-        if justified is None:
-            return Response({
-                'detail': 'Please indicate if access was justified'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        emergency_access.review(request.user, notes, justified)
-        
-        return Response({'detail': 'Review completed'})
-    
-    @action(detail=False, methods=['get'])
-    def compliance_summary(self, request):
-        """Get compliance summary for emergency access."""
-        if request.user.role not in ['admin', 'compliance']:
-            return Response({
-                'detail': 'Compliance officer access required'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        thirty_days_ago = timezone.now() - timedelta(days=30)
-        
-        summary = {
-            'total_requests': EmergencyAccess.objects.count(),
-            'pending_review': EmergencyAccess.objects.filter(reviewed=False).count(),
-            'recent_requests': EmergencyAccess.objects.filter(
-                requested_at__gte=thirty_days_ago
-            ).count(),
-            'justified_access': EmergencyAccess.objects.filter(
-                access_justified=True
-            ).count(),
-            'unjustified_access': EmergencyAccess.objects.filter(
-                access_justified=False
-            ).count(),
-            'by_reason': dict(
-                EmergencyAccess.objects.values('reason').annotate(
-                    count=Count('reason')
-                ).values_list('reason', 'count')
-            ),
-            'active_sessions': EmergencyAccess.objects.filter(
-                access_ended_at__isnull=True
-            ).count(),
-        }
-        
-        return Response(summary)
-
-
-class HIPAADocumentViewSet(BaseViewSet):
-    """ViewSet for HIPAA compliance documents."""
-    queryset = HIPAADocument.objects.all()
-    serializer_class = HIPAADocumentSerializer
-    
-    def get_permissions(self):
-        if self.action in ['list', 'retrieve', 'get_latest', 'sign']:
-            return [IsAuthenticated()]
-        return [IsAuthenticated(), permissions.IsAdminUser()]
-    
-    def get_queryset(self):
-        if self.request.user.is_staff:
-            return HIPAADocument.objects.all()
-        return HIPAADocument.objects.filter(active=True)
-
-    @action(detail=False, methods=['get'])
-    def get_latest(self, request):
-        """Get latest version of each document type."""
-        latest_docs = []
-        
-        for doc_type, _ in HIPAADocument.DOCUMENT_TYPES:
-            try:
-                doc = HIPAADocument.objects.filter(
-                    document_type=doc_type,
-                    active=True
-                ).latest('effective_date')
-                latest_docs.append(doc)
-            except HIPAADocument.DoesNotExist:
-                pass
-        
-        serializer = self.get_serializer(latest_docs, many=True)
-        return Response(serializer.data)
-
-    @action(detail=True, methods=['post'])
-    def sign(self, request, pk=None):
-        """E-sign a document."""
-        document = self.get_object()
-        
-        # Check if already signed
-        existing = ConsentRecord.objects.filter(
-            user=request.user,
-            consent_type=f'DOC_{document.document_type}',
-            document_version=document.version,
-            revoked=False
-        ).first()
-        
-        if existing:
-            return Response({
-                'detail': 'You have already signed this document'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Create consent record
-        consent = ConsentRecord.objects.create(
-            user=request.user,
-            consent_type=f'DOC_{document.document_type}',
-            consented=True,
-            document_version=document.version,
-            document_checksum=document.checksum,
-            signature_ip=self.get_client_ip(request),
-            signature_user_agent=self.get_user_agent(request)
-        )
-        
-        # Update user acknowledgment flags
-        if document.document_type == 'PRIVACY_NOTICE':
-            request.user.hipaa_privacy_acknowledged = True
-            request.user.hipaa_privacy_acknowledged_at = timezone.now()
-        elif document.document_type == 'TERMS_OF_SERVICE':
-            request.user.terms_accepted = True
-        
-        request.user.save()
-        
-        return Response({
-            'detail': 'Document signed successfully',
-            'consent_id': consent.id,
-            'signed_at': consent.signature_timestamp
-        })
-
 class PatientViewSet(viewsets.ModelViewSet):
     """ViewSet for patient-specific operations."""
 
@@ -3070,6 +2787,56 @@ class PatientViewSet(viewsets.ModelViewSet):
             logger.error(f"Error generating health alerts for user {user.id}: {str(e)}")
             return []
     
+    @action(detail=False, methods=['post'])
+    def send_message_to_provider(self, request):
+        """Send message to a provider."""
+        from communication.models import Conversation, Message
+        from communication.serializers import ConversationSerializer, MessageSerializer
+        
+        recipient_id = request.data.get('recipient')
+        subject = request.data.get('subject', 'Message from patient')
+        content = request.data.get('message')
+        
+        if not recipient_id or not content:
+            return Response(
+                {'detail': 'Recipient and message content are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Get the provider
+            provider = User.objects.get(id=recipient_id, role='provider')
+            
+            # Create or get conversation
+            conversation, created = Conversation.objects.get_or_create(
+                defaults={'subject': subject}
+            )
+            conversation.participants.add(request.user, provider)
+            
+            # Create message
+            message = Message.objects.create(
+                conversation=conversation,
+                sender=request.user,
+                content=content
+            )
+            
+            # Send notification to provider
+            # Add your notification logic here
+            
+            return Response({'detail': 'Message sent successfully'})
+            
+        except User.DoesNotExist:
+            return Response(
+                {'detail': 'Provider not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error sending message: {str(e)}")
+            return Response(
+                {'detail': 'Failed to send message'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+ 
     @action(detail=False, methods=['get'], url_path='family-history')
     def family_history(self, request):
         """Get patient's family medical history."""
@@ -3574,6 +3341,290 @@ class PatientViewSet(viewsets.ModelViewSet):
             pass
         
         return None
+
+
+class CaregiverRequestViewSet(BaseViewSet):
+    """ViewSet for caregiver-patient relationship requests."""
+    queryset = CaregiverRequest.objects.all()
+    serializer_class = CaregiverRequestSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        # Fix for Swagger schema generation
+        if getattr(self, 'swagger_fake_view', False):
+            return CaregiverRequest.objects.none()
+        
+        user = self.request.user
+        
+        # Check if user is authenticated and has role attribute
+        if not user.is_authenticated or not hasattr(user, 'role'):
+            return CaregiverRequest.objects.none()
+        
+        if user.role == 'patient':
+            return CaregiverRequest.objects.filter(patient=user)
+        elif user.role == 'caregiver':
+            return CaregiverRequest.objects.filter(caregiver=user)
+        elif user.is_staff:
+            return CaregiverRequest.objects.all()
+        
+        return CaregiverRequest.objects.none()
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve caregiver request (patient only)."""
+        caregiver_request = self.get_object()
+        
+        if request.user != caregiver_request.patient:
+            return Response({
+                'detail': 'Only the patient can approve this request'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        caregiver_request.approve()
+        
+        # Create consent record
+        ConsentRecord.objects.create(
+            user=request.user,
+            consent_type='CAREGIVER_ACCESS',
+            consented=True,
+            signature_ip=self.get_client_ip(request),
+            signature_user_agent=self.get_user_agent(request)
+        )
+        
+        # Notify caregiver
+        EmailService.send_caregiver_approval(caregiver_request.caregiver, request.user)
+        
+        return Response({'detail': 'Caregiver request approved'})
+
+    @action(detail=True, methods=['post'])
+    def deny(self, request, pk=None):
+        """Deny caregiver request (patient only)."""
+        caregiver_request = self.get_object()
+        
+        if request.user != caregiver_request.patient:
+            return Response({
+                'detail': 'Only the patient can deny this request'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        reason = request.data.get('reason', '')
+        caregiver_request.deny(reason)
+        
+        # Notify caregiver
+        EmailService.send_caregiver_denial(caregiver_request.caregiver, request.user, reason)
+        
+        return Response({'detail': 'Caregiver request denied'})
+
+
+class EmergencyAccessViewSet(BaseViewSet):
+    """ViewSet for emergency PHI access."""
+    queryset = EmergencyAccess.objects.all()
+    serializer_class = EmergencyAccessSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        # Fix for Swagger schema generation
+        if getattr(self, 'swagger_fake_view', False):
+            return EmergencyAccess.objects.none()
+        
+        user = self.request.user
+        
+        # Check if user is authenticated and has role attribute
+        if not user.is_authenticated or not hasattr(user, 'role'):
+            return EmergencyAccess.objects.none()
+        
+        if user.is_staff or user.role in ['admin', 'compliance']:
+            return EmergencyAccess.objects.all()
+        elif user.role == 'provider':
+            return EmergencyAccess.objects.filter(requester=user)
+        
+        return EmergencyAccess.objects.none()
+
+    @action(detail=False, methods=['post'])
+    def initiate(self, request):
+        """Initiate emergency access."""
+        if request.user.role not in ['provider', 'admin', 'compliance']:
+            return Response({
+                'detail': 'Only authorized personnel can initiate emergency access'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        emergency_access = serializer.save(
+            requester=request.user,
+            ip_address=self.get_client_ip(request),
+            user_agent=self.get_user_agent(request)
+        )
+        
+        # Send notifications
+        EmailService.send_emergency_access_notification(emergency_access)
+        
+        self.log_security_event(
+            user=request.user,
+            event_type="EMERGENCY_ACCESS_INITIATED",
+            description=f"Emergency access initiated: {emergency_access.reason}",
+            request=request
+        )
+        
+        return Response({
+            'detail': 'Emergency access initiated',
+            'access_id': emergency_access.id,
+            'expires_in': '4 hours'
+        })
+
+    @action(detail=True, methods=['post'])
+    def end_access(self, request, pk=None):
+        """End emergency access."""
+        emergency_access = self.get_object()
+        
+        if request.user != emergency_access.requester:
+            return Response({
+                'detail': 'Only the requester can end access'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        phi_summary = request.data.get('phi_accessed', '')
+        emergency_access.end_access(phi_summary)
+        
+        self.log_security_event(
+            user=request.user,
+            event_type="EMERGENCY_ACCESS_ENDED",
+            description=f"Emergency access ended",
+            request=request
+        )
+        
+        return Response({'detail': 'Emergency access ended'})
+
+    @action(detail=True, methods=['post'])
+    def review(self, request, pk=None):
+        """Review emergency access (compliance only)."""
+        if request.user.role not in ['admin', 'compliance']:
+            return Response({
+                'detail': 'Only compliance officers can review emergency access'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        emergency_access = self.get_object()
+        notes = request.data.get('notes', '')
+        justified = request.data.get('justified')
+        
+        if justified is None:
+            return Response({
+                'detail': 'Please indicate if access was justified'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        emergency_access.review(request.user, notes, justified)
+        
+        return Response({'detail': 'Review completed'})
+    
+    @action(detail=False, methods=['get'])
+    def compliance_summary(self, request):
+        """Get compliance summary for emergency access."""
+        if request.user.role not in ['admin', 'compliance']:
+            return Response({
+                'detail': 'Compliance officer access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        
+        summary = {
+            'total_requests': EmergencyAccess.objects.count(),
+            'pending_review': EmergencyAccess.objects.filter(reviewed=False).count(),
+            'recent_requests': EmergencyAccess.objects.filter(
+                requested_at__gte=thirty_days_ago
+            ).count(),
+            'justified_access': EmergencyAccess.objects.filter(
+                access_justified=True
+            ).count(),
+            'unjustified_access': EmergencyAccess.objects.filter(
+                access_justified=False
+            ).count(),
+            'by_reason': dict(
+                EmergencyAccess.objects.values('reason').annotate(
+                    count=Count('reason')
+                ).values_list('reason', 'count')
+            ),
+            'active_sessions': EmergencyAccess.objects.filter(
+                access_ended_at__isnull=True
+            ).count(),
+        }
+        
+        return Response(summary)
+
+
+class HIPAADocumentViewSet(BaseViewSet):
+    """ViewSet for HIPAA compliance documents."""
+    queryset = HIPAADocument.objects.all()
+    serializer_class = HIPAADocumentSerializer
+    
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve', 'get_latest', 'sign']:
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), permissions.IsAdminUser()]
+    
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return HIPAADocument.objects.all()
+        return HIPAADocument.objects.filter(active=True)
+
+    @action(detail=False, methods=['get'])
+    def get_latest(self, request):
+        """Get latest version of each document type."""
+        latest_docs = []
+        
+        for doc_type, _ in HIPAADocument.DOCUMENT_TYPES:
+            try:
+                doc = HIPAADocument.objects.filter(
+                    document_type=doc_type,
+                    active=True
+                ).latest('effective_date')
+                latest_docs.append(doc)
+            except HIPAADocument.DoesNotExist:
+                pass
+        
+        serializer = self.get_serializer(latest_docs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def sign(self, request, pk=None):
+        """E-sign a document."""
+        document = self.get_object()
+        
+        # Check if already signed
+        existing = ConsentRecord.objects.filter(
+            user=request.user,
+            consent_type=f'DOC_{document.document_type}',
+            document_version=document.version,
+            revoked=False
+        ).first()
+        
+        if existing:
+            return Response({
+                'detail': 'You have already signed this document'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create consent record
+        consent = ConsentRecord.objects.create(
+            user=request.user,
+            consent_type=f'DOC_{document.document_type}',
+            consented=True,
+            document_version=document.version,
+            document_checksum=document.checksum,
+            signature_ip=self.get_client_ip(request),
+            signature_user_agent=self.get_user_agent(request)
+        )
+        
+        # Update user acknowledgment flags
+        if document.document_type == 'PRIVACY_NOTICE':
+            request.user.hipaa_privacy_acknowledged = True
+            request.user.hipaa_privacy_acknowledged_at = timezone.now()
+        elif document.document_type == 'TERMS_OF_SERVICE':
+            request.user.terms_accepted = True
+        
+        request.user.save()
+        
+        return Response({
+            'detail': 'Document signed successfully',
+            'consent_id': consent.id,
+            'signed_at': consent.signature_timestamp
+        })
 
 class ProviderProfileViewSet(BaseViewSet):
     queryset = ProviderProfile.objects.all()
