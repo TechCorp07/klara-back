@@ -161,7 +161,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 consultation.meeting_id = meeting_data.get('meeting_id')
                 consultation.join_url = meeting_data.get('join_url')
                 consultation.password = meeting_data.get('password')
-                consultation.host_key = meeting_data.get('host_key')
+                consultation.host_key = meeting_data.get('host_key', '') or ''
                 consultation.platform_data = meeting_data
                 consultation.save()
                 logger.info(f"🔍 Consultation updated with meeting details")

@@ -171,6 +171,7 @@ def create_zoom_meeting(topic, start_time, duration_minutes, meeting_timezone="U
                 'join_url': result.get('join_url'),
                 'password': result.get('password', ''),
                 'host_url': result.get('start_url', ''),
+                'host_key': '',  # Host key is not returned by the API
                 'status': 'created',
                 'created_at': django_timezone.now().isoformat(),
                 'settings': result.get('settings', {}),
