@@ -564,8 +564,9 @@ EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 EMAIL_NOTIFICATIONS_ENABLED = env.bool('EMAIL_NOTIFICATIONS_ENABLED', default=False)
 
 # Telemedicine settings
-ZOOM_API_KEY = env('ZOOM_API_KEY', default='')
-ZOOM_API_SECRET = env('ZOOM_API_SECRET', default='')
+ZOOM_CLIENT_ID = env('ZOOM_CLIENT_ID', default='')
+ZOOM_CLIENT_SECRET = env('ZOOM_CLIENT_SECRET', default='')
+ZOOM_ACCOUNT_ID = env('ZOOM_ACCOUNT_ID', default='')
 ZOOM_WEBHOOK_SECRET = env('ZOOM_WEBHOOK_SECRET', default='')
 
 # Microsoft Teams settings (if used)

@@ -1,15 +1,10 @@
-import jwt
 import json
-import time
-import uuid
 import logging
 import requests
-from datetime import datetime, timedelta
+import base64
 from django.conf import settings
-from django.utils import timezone
-from rest_framework import status
+from django.core.cache import cache
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 class ZoomMeetingException(Exception):
@@ -21,38 +16,80 @@ class ZoomMeetingException(Exception):
         super().__init__(self.message)
 
 
-def generate_zoom_jwt():
+def get_zoom_access_token():
     """
-    Generate JWT token for Zoom API authentication.
+    Get OAuth access token for Zoom API using Server-to-Server OAuth.
     
     Returns:
-        str: JWT token
+        str: Access token
     """
     try:
-        iat = int(time.time())
-        exp = iat + 3600  # Token expires in 1 hour
+        # Check cache first
+        token = cache.get('zoom_access_token')
+        if token:
+            return token
         
-        payload = {
-            'iss': settings.ZOOM_API_KEY,
-            'exp': exp,
-            'iat': iat
+        # Prepare OAuth request
+        client_id = settings.ZOOM_CLIENT_ID
+        client_secret = settings.ZOOM_CLIENT_SECRET
+        account_id = settings.ZOOM_ACCOUNT_ID
+        
+        if not all([client_id, client_secret, account_id]):
+            raise ZoomMeetingException("Missing Zoom OAuth credentials in settings")
+        
+        # Create base64 encoded credentials
+        auth_string = f"{client_id}:{client_secret}"
+        auth_bytes = auth_string.encode('ascii')
+        auth_b64 = base64.b64encode(auth_bytes).decode('ascii')
+        
+        # Prepare token request
+        headers = {
+            'Authorization': f'Basic {auth_b64}',
+            'Content-Type': 'application/x-www-form-urlencoded'
         }
         
-        token = jwt.encode(payload, settings.ZOOM_API_SECRET, algorithm='HS256')
+        data = {
+            'grant_type': 'account_credentials',
+            'account_id': account_id
+        }
         
-        # If token is returned as bytes, decode to string
-        if isinstance(token, bytes):
-            return token.decode('utf-8')
-        return token
+        # Make token request
+        response = requests.post(
+            'https://zoom.us/oauth/token',
+            headers=headers,
+            data=data
+        )
         
+        # Handle response
+        if response.status_code == 200:
+            token_data = response.json()
+            access_token = token_data['access_token']
+            expires_in = token_data.get('expires_in', 3600)
+            
+            # Cache token (expires in 1 hour typically, cache for 55 minutes)
+            cache.set('zoom_access_token', access_token, expires_in - 300)
+            logger.info("Successfully obtained Zoom access token")
+            return access_token
+        else:
+            error_info = response.json() if response.content else {"error": "Unknown error"}
+            logger.error(f"Failed to get Zoom access token: {response.status_code} - {error_info}")
+            raise ZoomMeetingException(
+                f"Failed to get Zoom access token: {error_info.get('error_description', 'Unknown error')}",
+                status_code=response.status_code,
+                response=error_info
+            )
+            
+    except requests.RequestException as e:
+        logger.error(f"Zoom OAuth request failed: {str(e)}")
+        raise ZoomMeetingException(f"Zoom OAuth request failed: {str(e)}")
     except Exception as e:
-        logger.error(f"Error generating Zoom JWT: {str(e)}")
-        raise ZoomMeetingException(f"Failed to generate Zoom authentication token: {str(e)}")
+        logger.error(f"Unexpected error getting Zoom access token: {str(e)}")
+        raise ZoomMeetingException(f"Unexpected error getting Zoom access token: {str(e)}")
 
 
 def create_zoom_meeting(topic, start_time, duration_minutes, timezone="UTC", settings_dict=None):
     """
-    Create a Zoom meeting.
+    Create a Zoom meeting using OAuth authentication.
     
     Args:
         topic (str): Meeting topic/name
@@ -68,8 +105,8 @@ def create_zoom_meeting(topic, start_time, duration_minutes, timezone="UTC", set
         ZoomMeetingException: If meeting creation fails
     """
     try:
-        # Generate JWT token
-        token = generate_zoom_jwt()
+        # Get OAuth access token
+        token = get_zoom_access_token()
         
         # Prepare request
         api_url = "https://api.zoom.us/v2/users/me/meetings"
@@ -81,7 +118,7 @@ def create_zoom_meeting(topic, start_time, duration_minutes, timezone="UTC", set
         # Format start time for Zoom API
         formatted_start_time = start_time.strftime('%Y-%m-%dT%H:%M:%S')
         
-        # Default meeting settings
+        # Default meeting settings for healthcare
         default_settings = {
             'host_video': True,
             'participant_video': True,
@@ -90,7 +127,11 @@ def create_zoom_meeting(topic, start_time, duration_minutes, timezone="UTC", set
             'waiting_room': True,
             'audio': 'both',
             'auto_recording': 'none',
-            'meeting_authentication': False
+            'meeting_authentication': False,
+            'approval_type': 0,  # Automatically approve
+            'enforce_login': False,
+            'alternative_hosts': '',
+            'use_pmi': False
         }
         
         # Override with custom settings if provided
@@ -118,14 +159,16 @@ def create_zoom_meeting(topic, start_time, duration_minutes, timezone="UTC", set
         # Handle response
         if response.status_code == 201:
             result = response.json()
+            logger.info(f"Successfully created Zoom meeting: {result.get('id')}")
             return {
-                'meeting_id': result.get('id'),
+                'meeting_id': str(result.get('id')),
                 'join_url': result.get('join_url'),
                 'password': result.get('password', ''),
                 'host_url': result.get('start_url', ''),
                 'status': 'created',
                 'created_at': timezone.now().isoformat(),
-                'settings': result.get('settings', {})
+                'settings': result.get('settings', {}),
+                'platform_data': result  # Store full response
             }
         else:
             error_info = response.json() if response.content else {"message": "Unknown error"}
@@ -158,8 +201,8 @@ def get_zoom_meeting(meeting_id):
         ZoomMeetingException: If retrieval fails
     """
     try:
-        # Generate JWT token
-        token = generate_zoom_jwt()
+        # Get OAuth access token
+        token = get_zoom_access_token()
         
         # Prepare request
         api_url = f"https://api.zoom.us/v2/meetings/{meeting_id}"
@@ -209,8 +252,8 @@ def update_zoom_meeting(meeting_id, topic=None, start_time=None, duration=None, 
         ZoomMeetingException: If update fails
     """
     try:
-        # Generate JWT token
-        token = generate_zoom_jwt()
+        # Get OAuth access token
+        token = get_zoom_access_token()
         
         # Prepare request
         api_url = f"https://api.zoom.us/v2/meetings/{meeting_id}"
@@ -244,6 +287,7 @@ def update_zoom_meeting(meeting_id, topic=None, start_time=None, duration=None, 
             
             # Handle response
             if response.status_code == 204:
+                logger.info(f"Successfully updated Zoom meeting: {meeting_id}")
                 return True
             else:
                 error_info = response.json() if response.content else {"message": "Unknown error"}
@@ -279,8 +323,8 @@ def delete_zoom_meeting(meeting_id, cancel_meeting_reminder=True):
         ZoomMeetingException: If deletion fails
     """
     try:
-        # Generate JWT token
-        token = generate_zoom_jwt()
+        # Get OAuth access token
+        token = get_zoom_access_token()
         
         # Prepare request
         api_url = f"https://api.zoom.us/v2/meetings/{meeting_id}"
@@ -297,6 +341,7 @@ def delete_zoom_meeting(meeting_id, cancel_meeting_reminder=True):
         
         # Handle response
         if response.status_code in [204, 200]:
+            logger.info(f"Successfully deleted Zoom meeting: {meeting_id}")
             return True
         else:
             error_info = response.json() if response.content else {"message": "Unknown error"}
@@ -329,8 +374,8 @@ def get_meeting_recordings(meeting_id):
         ZoomMeetingException: If retrieval fails
     """
     try:
-        # Generate JWT token
-        token = generate_zoom_jwt()
+        # Get OAuth access token
+        token = get_zoom_access_token()
         
         # Prepare request
         api_url = f"https://api.zoom.us/v2/meetings/{meeting_id}/recordings"
@@ -362,38 +407,43 @@ def get_meeting_recordings(meeting_id):
         raise ZoomMeetingException(f"Unexpected error getting meeting recordings: {str(e)}")
 
 
-def generate_signature(api_key, api_secret, meeting_number, role):
+def test_zoom_connection():
     """
-    Generate a signature for joining a Zoom meeting via client SDK.
-    
-    Args:
-        api_key (str): Zoom API Key
-        api_secret (str): Zoom API Secret
-        meeting_number (str): Zoom meeting ID
-        role (int): Role (0 for attendee, 1 for host)
+    Test Zoom API connection.
     
     Returns:
-        str: Signature for client SDK
+        dict: Connection test results
     """
     try:
-        iat = int(time.time())
-        exp = iat + 60 * 60 * 2  # Token expires in 2 hours
+        # Get OAuth access token
+        token = get_zoom_access_token()
         
-        payload = {
-            'iss': api_key,
-            'exp': exp,
-            'iat': iat,
-            'mn': meeting_number,
-            'role': role
+        # Test API call
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json'
         }
         
-        token = jwt.encode(payload, api_secret, algorithm='HS256')
+        response = requests.get('https://api.zoom.us/v2/users/me', headers=headers)
         
-        # If token is returned as bytes, decode to string
-        if isinstance(token, bytes):
-            return token.decode('utf-8')
-        return token
-        
+        if response.status_code == 200:
+            user_info = response.json()
+            return {
+                'status': 'success',
+                'message': 'Zoom API connection successful',
+                'zoom_user': user_info.get('email', 'Unknown'),
+                'account_type': user_info.get('type', 'Unknown'),
+                'account_id': user_info.get('account_id', 'Unknown')
+            }
+        else:
+            return {
+                'status': 'error',
+                'message': f'Zoom API error: {response.status_code}',
+                'details': response.json() if response.content else None
+            }
+            
     except Exception as e:
-        logger.error(f"Error generating Zoom signature: {str(e)}")
-        raise ZoomMeetingException(f"Failed to generate Zoom signature: {str(e)}")
+        return {
+            'status': 'error',
+            'message': f'Zoom connection test failed: {str(e)}'
+        }
