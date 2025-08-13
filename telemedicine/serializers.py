@@ -44,11 +44,13 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'insurance_verified', 'copay_amount', 'copay_collected',
             'availability_block', 'created_at', 'updated_at',
             'patient_details', 'provider_details', 'status_display',
-            'appointment_type_display', 'priority_display'
+            'appointment_type_display', 'priority_display',
+            'meeting_url', 'meeting_id', 'telemedicine_ready'
         )
         read_only_fields = (
             'created_at', 'updated_at', 'reminder_sent', 'reminder_sent_time',
-            'status_display', 'appointment_type_display', 'priority_display'
+            'status_display', 'appointment_type_display', 'priority_display',
+            'meeting_url', 'meeting_id', 'telemedicine_ready'
         )
         
     def get_meeting_url(self, obj):

@@ -100,24 +100,14 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         return super().get_permissions()
     
     def perform_create(self, serializer):
-        """Create appointment with proper metadata."""
-        serializer.save(created_by=self.request.user, updated_by=self.request.user)
-        
-        # Send confirmation notification
-        try:
-            appointment = serializer.instance
-            notifications_service.send_appointment_confirmation(appointment)
-        except Exception as e:
-            logger.error(f"Failed to send confirmation notification: {str(e)}")
-    
-    def perform_update(self, serializer):
-        """Update appointment with proper metadata."""
-        serializer.save(updated_by=self.request.user)
-    
-    def perform_create(self, serializer):
         """Create appointment with automatic telemedicine setup if needed."""
         # Save the appointment first
         appointment = serializer.save(created_by=self.request.user, updated_by=self.request.user)
+        
+        # 🆕 ADD DEBUG LOGGING TO SEE WHAT'S HAPPENING
+        logger.info(f"🔍 Created appointment {appointment.id}")
+        logger.info(f"🔍 Appointment type: {appointment.appointment_type}")
+        logger.info(f"🔍 Is telemedicine: {appointment.is_telemedicine}")
         
         try:
             # Send initial confirmation notification
@@ -125,13 +115,24 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             
             # 🆕 AUTO-ACTIVATE TELEMEDICINE if checkbox was checked
             if appointment.is_telemedicine:
+                logger.info(f"🔍 Activating telemedicine workflow for appointment {appointment.id}")
                 self._auto_activate_telemedicine_workflow(appointment)
+            else:
+                logger.info(f"🔍 Not telemedicine appointment, skipping workflow activation")
                 
         except Exception as e:
             logger.error(f"Failed to send confirmation notification: {str(e)}")
-
+            import traceback
+            logger.error(traceback.format_exc())
+    
+    def perform_update(self, serializer):
+        """Update appointment with proper metadata."""
+        serializer.save(updated_by=self.request.user)
+    
     def _auto_activate_telemedicine_workflow(self, appointment):
         """Automatically activate telemedicine workflow when appointment is created."""
+        logger.info(f"🔍 Starting telemedicine workflow for appointment {appointment.id}")
+        
         try:
             # Use default platform (can be made configurable)
             platform_preference = 'zoom'
@@ -144,8 +145,10 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                     'status': Consultation.Status.SCHEDULED
                 }
             )
+            logger.info(f"🔍 Consultation created: {created}, ID: {consultation.id}")
             
             if created or not consultation.join_url:
+                logger.info(f"🔍 Creating meeting...")
                 # Use existing platform service to create meeting
                 from .services.platform_service import create_meeting
                 meeting_data = create_meeting(
@@ -154,6 +157,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                     organizer_email=appointment.provider.email,
                     patient_email=appointment.patient.email
                 )
+                logger.info(f"🔍 Meeting data received: {meeting_data}")
                 
                 # Update consultation with meeting details
                 consultation.meeting_id = meeting_data.get('meeting_id')
@@ -162,6 +166,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 consultation.host_key = meeting_data.get('host_key')
                 consultation.platform_data = meeting_data
                 consultation.save()
+                logger.info(f"🔍 Consultation updated with meeting details")
                 
                 # Send calendar invites
                 from .services.calendar_service import CalendarService
