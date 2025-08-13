@@ -291,7 +291,7 @@ class TelemedicineNotificationService:
                     user=patient,
                     title="Upcoming Appointment Reminder",
                     message=f"You have an appointment with {appointment.provider.get_full_name()} on {notification_data['scheduled_time']}",
-                    notification_type='appointment_reminder',
+                    notification_type='appointment',
                     related_object_id=appointment.id,
                     related_object_type='appointment'
                 )
@@ -306,7 +306,7 @@ class TelemedicineNotificationService:
                     user=patient,
                     title=f"Appointment Reminder - {appointment.scheduled_time.strftime('%B %d')}",
                     message=f"Reminder: You have an appointment with {appointment.provider.get_full_name()} on {notification_data['scheduled_time']}",
-                    notification_type='appointment_reminder'
+                    notification_type='appointment'
                 )
             except Exception as e:
                 logger.error(f"Failed to send email reminder: {str(e)}")
@@ -334,7 +334,7 @@ class TelemedicineNotificationService:
                     user=patient,
                     title="Appointment Confirmed",
                     message=f"Your {notification_data['appointment_type']} with {notification_data['provider_name']} is confirmed for {notification_data['scheduled_time']}",
-                    notification_type='appointment_confirmation',
+                    notification_type='appointment',
                     related_object_id=notification_data['appointment_id'],
                     related_object_type='appointment'
                 )
@@ -349,7 +349,7 @@ class TelemedicineNotificationService:
                     user=patient,
                     title="Appointment Confirmation",
                     message=f"Your {notification_data['appointment_type']} with {notification_data['provider_name']} is confirmed",
-                    notification_type='appointment_confirmation'
+                    notification_type='appointment'
                 )
             except Exception as e:
                 logger.error(f"Failed to send confirmation email: {str(e)}")
