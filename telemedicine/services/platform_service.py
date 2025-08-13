@@ -57,7 +57,7 @@ def create_meeting(consultation, platform, organizer_email, patient_email=None):
                 topic=topic,
                 start_time=now,
                 duration_minutes=duration_minutes,
-                timezone=appointment.timezone or "UTC",
+                meeting_timezone=appointment.timezone or "UTC",
                 settings_dict={
                     'host_video': True,
                     'participant_video': True,

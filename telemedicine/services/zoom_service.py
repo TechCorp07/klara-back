@@ -1,10 +1,16 @@
 import json
+import time
+import uuid
 import logging
 import requests
 import base64
+from datetime import datetime, timedelta
 from django.conf import settings
+from django.utils import timezone as django_timezone
 from django.core.cache import cache
+from rest_framework import status
 
+# Configure logging
 logger = logging.getLogger(__name__)
 
 class ZoomMeetingException(Exception):
@@ -87,7 +93,7 @@ def get_zoom_access_token():
         raise ZoomMeetingException(f"Unexpected error getting Zoom access token: {str(e)}")
 
 
-def create_zoom_meeting(topic, start_time, duration_minutes, timezone="UTC", settings_dict=None):
+def create_zoom_meeting(topic, start_time, duration_minutes, meeting_timezone="UTC", settings_dict=None):
     """
     Create a Zoom meeting using OAuth authentication.
     
@@ -95,7 +101,7 @@ def create_zoom_meeting(topic, start_time, duration_minutes, timezone="UTC", set
         topic (str): Meeting topic/name
         start_time (datetime): Meeting start time
         duration_minutes (int): Meeting duration in minutes
-        timezone (str, optional): Timezone. Defaults to "UTC".
+        meeting_timezone (str, optional): Meeting timezone. Defaults to "UTC".
         settings_dict (dict, optional): Custom settings for the meeting. Defaults to None.
     
     Returns:
@@ -144,7 +150,7 @@ def create_zoom_meeting(topic, start_time, duration_minutes, timezone="UTC", set
             'type': 2,  # Scheduled meeting
             'start_time': formatted_start_time,
             'duration': duration_minutes,
-            'timezone': timezone,
+            'timezone': meeting_timezone,
             'agenda': f"Medical consultation scheduled for {formatted_start_time}",
             'settings': default_settings
         }
@@ -166,7 +172,7 @@ def create_zoom_meeting(topic, start_time, duration_minutes, timezone="UTC", set
                 'password': result.get('password', ''),
                 'host_url': result.get('start_url', ''),
                 'status': 'created',
-                'created_at': timezone.now().isoformat(),
+                'created_at': django_timezone.now().isoformat(),
                 'settings': result.get('settings', {}),
                 'platform_data': result  # Store full response
             }
