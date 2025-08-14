@@ -2796,6 +2796,7 @@ class PatientViewSet(viewsets.ModelViewSet):
             
             User = get_user_model()
             
+            # Get data from request
             recipient_id = request.data.get('recipient')
             subject = request.data.get('subject', 'Message from patient')
             content = request.data.get('message')
@@ -2817,7 +2818,7 @@ class PatientViewSet(viewsets.ModelViewSet):
                 
             # Create or get conversation
             conversation, created = Conversation.objects.get_or_create(
-                defaults={'subject': subject}
+                defaults={'title': subject}
             )
             conversation.participants.add(request.user, provider)
                 

@@ -287,7 +287,7 @@ def reschedule_appointment(appointment, new_start_time, new_end_time, reason=Non
             raise SchedulingException(f"Cannot reschedule an appointment with status: {appointment.get_status_display()}")
         
         # Check if provider is available at the new time
-        is_available, availability_info = check_provider_availability(
+        is_available, availability_info = check_provider_availability_for_reschedule(
             appointment.provider, new_start_time, new_end_time, 
             appointment.appointment_type, appointment.id
         )
@@ -309,7 +309,8 @@ def reschedule_appointment(appointment, new_start_time, new_end_time, reason=Non
         
         # Update notes with reason
         if reason:
-            appointment.notes += f"\n\nRescheduled on {timezone.now().strftime('%Y-%m-%d %H:%M')}."
+            current_notes = appointment.notes or ""
+            appointment.notes = current_notes + f"\n\nRescheduled on {timezone.now().strftime('%Y-%m-%d %H:%M')}."
             appointment.notes += f"\nReason: {reason}"
         
         # Set the updated_by field
@@ -569,3 +570,78 @@ def get_provider_schedule(provider, start_date, end_date=None):
     except Exception as e:
         logger.error(f"Error getting provider schedule: {str(e)}")
         raise SchedulingException(f"Error getting provider schedule: {str(e)}")
+
+
+def check_provider_availability_for_reschedule(provider, start_time, end_time, appointment_type=None, appointment_id=None):
+    """
+    Check if a provider is available for rescheduling (more relaxed than new appointments).
+    For rescheduling, we only check for conflicts, not strict availability blocks.
+    
+    Args:
+        provider: Provider user object
+        start_time: Start datetime of the requested slot
+        end_time: End datetime of the requested slot
+        appointment_type: Type of appointment (optional)
+        appointment_id: ID of appointment being rescheduled (to exclude from conflicts)
+    
+    Returns:
+        tuple: (bool: is_available, dict: availability_info)
+    """
+    try:
+        # Validate input
+        if end_time <= start_time:
+            raise SchedulingException("End time must be after start time")
+            
+        # Check if time is in the past
+        now = timezone.now()
+        if start_time < now:
+            return False, {'error': 'Cannot schedule appointments in the past'}
+        
+        # For rescheduling, only check for conflicting appointments
+        # Don't require strict availability blocks since the appointment was already approved
+        conflicting_appointments = Appointment.objects.filter(
+            provider=provider,
+            scheduled_time__lt=end_time,
+            end_time__gt=start_time,
+            status__in=['scheduled', 'confirmed', 'in_progress']
+        )
+        
+        # Exclude the current appointment if we're rescheduling
+        if appointment_id:
+            conflicting_appointments = conflicting_appointments.exclude(id=appointment_id)
+        
+        if conflicting_appointments.exists():
+            return False, {'error': 'Provider has conflicting appointments during this time'}
+        
+        # Check if there are any availability blocks for this time (optional for rescheduling)
+        availability_blocks = ProviderAvailability.objects.filter(
+            provider=provider,
+            start_time__lt=end_time,
+            end_time__gt=start_time,
+            is_available=True
+        )
+        
+        # If availability blocks exist, use the best one
+        best_block = None
+        if availability_blocks.exists():
+            for block in availability_blocks:
+                if not block.is_booked:
+                    # Check appointment type compatibility if specified
+                    if appointment_type and block.appointment_types:
+                        if appointment_type not in block.appointment_types:
+                            continue
+                    
+                    # Prefer blocks that most closely match the requested time
+                    if not best_block or (
+                        start_time >= block.start_time and 
+                        end_time <= block.end_time
+                    ):
+                        best_block = block
+        
+        # For rescheduling, we allow the appointment even without explicit availability blocks
+        return True, {'availability_block': best_block, 'reschedule_allowed': True}
+        
+    except Exception as e:
+        logger.error(f"Error checking provider availability for reschedule: {str(e)}")
+        raise SchedulingException(f"Error checking provider availability for reschedule: {str(e)}")
+
