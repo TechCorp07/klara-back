@@ -31,6 +31,8 @@ class MedicalRecordSerializer(serializers.ModelSerializer):
     primary_physician_details = UserBasicSerializer(source='primary_physician', read_only=True)
     created_by_details = UserBasicSerializer(source='created_by', read_only=True)
     updated_by_details = UserBasicSerializer(source='updated_by', read_only=True)
+    height = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
+    weight = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
     
     class Meta:
         model = MedicalRecord

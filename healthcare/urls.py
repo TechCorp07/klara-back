@@ -36,6 +36,7 @@ router.register(r'referral-network', ReferralNetworkViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('medical-records/summary/', MedicalRecordViewSet.as_view({'get': 'get_patient_summary'}), name='medical-records-summary'),
     # Dashboard endpoints
     path('dashboard/patient/', MedicalRecordViewSet.as_view({'get': 'patient_dashboard'}), name='patient-dashboard'),
     path('dashboard/provider/', MedicalRecordViewSet.as_view({'get': 'provider_dashboard'}), name='provider-dashboard'),

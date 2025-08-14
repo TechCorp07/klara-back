@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.db.models import Q, Count
 from django.http import Http404
 from django.contrib.auth import get_user_model
+import logging
 
 from .models import (
     MedicalRecord, Medication, MedicationIntake, Allergy, Condition, ConditionFlare,
@@ -30,6 +31,7 @@ from .permissions import (
 from users.permissions import IsApprovedUser
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 class BaseHealthcareViewSet(viewsets.ModelViewSet):
     """Base ViewSet for healthcare models with audit logging."""
@@ -171,23 +173,75 @@ class MedicalRecordViewSet(BaseHealthcareViewSet):
     @action(detail=False, methods=['get'])
     def patient_dashboard(self, request):
         """Get comprehensive patient dashboard data."""
-        if request.user.role != 'patient':
-            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            user = request.user
+            
+            if user.role != 'patient':
+                return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+            
+            try:
+                medical_record = MedicalRecord.objects.get(patient=user)
+            except MedicalRecord.DoesNotExist:
+                return Response({'error': 'No medical record found'}, 
+                            status=status.HTTP_404_NOT_FOUND)
+            
+            # Use the dashboard service to get comprehensive data
+            from .services.dashboard_service import PatientDashboardService
+            
+            dashboard_data = PatientDashboardService.get_patient_dashboard(user.id)
+            
+            return Response(dashboard_data)
+            
+        except Exception as e:
+            logger.error(f"Error generating patient dashboard for user {user.id}: {str(e)}")
+            return Response({
+                'error': 'Failed to generate dashboard',
+                'patient_name': f"{user.first_name} {user.last_name}",
+                'counts': {
+                    'conditions': 0,
+                    'medications': 0,
+                    'appointments': 0,
+                    'notifications': 0,
+                }
+            })
         
-        days = int(request.query_params.get('days', 30))
+    @action(detail=False, methods=['get'])
+    def get_patient_summary(self, request):
+        """Get summary of patient's medical records."""
+        user = request.user
         
-        from .services.dashboard_service import HealthcareDashboardService
+        if user.role != 'patient':
+            return Response({'error': 'Only patients can access this endpoint'}, 
+                        status=status.HTTP_403_FORBIDDEN)
         
-        dashboard_data = HealthcareDashboardService.get_patient_dashboard_data(
-            patient=request.user,
-            days=days
-        )
+        try:
+            medical_record = MedicalRecord.objects.get(patient=user)
+        except MedicalRecord.DoesNotExist:
+            return Response({'error': 'No medical record found'}, 
+                        status=status.HTTP_404_NOT_FOUND)
         
-        if 'error' in dashboard_data:
-            return Response(dashboard_data, status=status.HTTP_400_BAD_REQUEST)
+        # Log the summary access
+        self.log_access(medical_record, 'view', 'Summary view of medical record')
         
-        return Response(dashboard_data)
-
+        # Gather summary data
+        conditions_count = medical_record.conditions.count() if hasattr(medical_record, 'conditions') else 0
+        active_conditions = medical_record.conditions.filter(status='active').count() if hasattr(medical_record, 'conditions') else 0
+        medications_count = medical_record.medications.filter(active=True).count() if hasattr(medical_record, 'medications') else 0
+        allergies_count = medical_record.allergies.count() if hasattr(medical_record, 'allergies') else 0
+        
+        return Response({
+            'patient_name': f"{medical_record.patient.first_name} {medical_record.patient.last_name}",
+            'has_rare_condition': medical_record.has_rare_condition,
+            'counts': {
+                'conditions': conditions_count,
+                'active_conditions': active_conditions,
+                'medications': medications_count,
+                'allergies': allergies_count,
+            },
+            'patient_id': medical_record.patient.id,
+            'medical_record_id': medical_record.id,
+        })
+    
     @action(detail=False, methods=['get'])
     def provider_dashboard(self, request):
         """Get provider dashboard data."""
