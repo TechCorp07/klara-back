@@ -40,10 +40,8 @@ urlpatterns = [
     path('dashboard/patient/', MedicalRecordViewSet.as_view({'get': 'patient_dashboard'}), name='patient-dashboard'),
     path('dashboard/provider/', MedicalRecordViewSet.as_view({'get': 'provider_dashboard'}), name='provider-dashboard'),
     path('dashboard/pharmco/', MedicalRecordViewSet.as_view({'get': 'pharmco_dashboard'}), name='pharmco-dashboard'),
-
-    # Rare disease monitoring
-    path('medical-records/<int:pk>/rare-disease-monitoring/', MedicalRecordViewSet.as_view({'get': 'rare_disease_monitoring'}), name='rare-disease-monitoring'),
-        # Enhanced Telemedicine endpoints
+    
+    # Enhanced Telemedicine endpoints
     path('telemedicine/smart-scheduling/', EnhancedTelemedicineViewSet.as_view({'post': 'schedule_intelligent_appointment'}), name='smart-telemedicine-scheduling'),
     path('telemedicine/provider-dashboard/', EnhancedTelemedicineViewSet.as_view({'get': 'get_provider_dashboard'}), name='provider-telemedicine-dashboard'),
 ]
