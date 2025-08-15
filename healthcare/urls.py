@@ -1,4 +1,4 @@
-# urls.py in healthcare app - Create this file
+# urls.py in healthcare app
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
@@ -35,7 +35,6 @@ router.register(r'rare-conditions', RareConditionRegistryViewSet)
 router.register(r'referral-network', ReferralNetworkViewSet)
 
 urlpatterns = [
-    path('', include(router.urls)),
     path('medical-records/summary/', MedicalRecordViewSet.as_view({'get': 'get_patient_summary'}), name='medical-records-summary'),
     # Dashboard endpoints
     path('dashboard/patient/', MedicalRecordViewSet.as_view({'get': 'patient_dashboard'}), name='patient-dashboard'),
@@ -45,4 +44,6 @@ urlpatterns = [
     # Enhanced Telemedicine endpoints
     path('telemedicine/smart-scheduling/', EnhancedTelemedicineViewSet.as_view({'post': 'schedule_intelligent_appointment'}), name='smart-telemedicine-scheduling'),
     path('telemedicine/provider-dashboard/', EnhancedTelemedicineViewSet.as_view({'get': 'get_provider_dashboard'}), name='provider-telemedicine-dashboard'),
+    
+    path('', include(router.urls)),
 ]

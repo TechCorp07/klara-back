@@ -31,14 +31,25 @@ class MedicalRecordSerializer(serializers.ModelSerializer):
     primary_physician_details = UserBasicSerializer(source='primary_physician', read_only=True)
     created_by_details = UserBasicSerializer(source='created_by', read_only=True)
     updated_by_details = UserBasicSerializer(source='updated_by', read_only=True)
+    # Explicitly define encrypted decimal fields to avoid serializer conflicts
     height = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
     weight = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
+    status = serializers.SerializerMethodField()
     
     class Meta:
         model = MedicalRecord
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at', 'created_by', 'updated_by', 
                            'created_by_details', 'updated_by_details', 'version')
+    
+    def get_status(self, obj):
+        """Return a status based on medical record state."""
+        if hasattr(obj, 'is_active') and not obj.is_active:
+            return 'inactive'
+        elif obj.has_rare_condition:
+            return 'active_rare'
+        else:
+            return 'active'
     
     def create(self, validated_data):
         # Set the created_by field
