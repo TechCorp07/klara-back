@@ -45,7 +45,7 @@ urlpatterns = [
     path('auth/verify-phonenumber/', UserViewSet.as_view({'post': 'verify_phone'}), name='verify-phone'),
     path('auth/forgot-password/', UserViewSet.as_view({'post': 'forgot_password'}), name='forgot-password'),
     path('auth/reset-password/', UserViewSet.as_view({'post': 'reset_password'}), name='reset-password'),
-    path('auth/setup-2fa/', UserViewSet.as_view({'post': 'setup_2fa'}), name='setup-2fa'),
+    path('auth/setup-2fa/', UserViewSet.as_view({'get': 'get_2fa_status', 'post': 'setup_2fa'}), name='setup-2fa'),
     path('auth/confirm-2fa/', UserViewSet.as_view({'post': 'confirm_2fa'}), name='confirm-2fa'),
     path('auth/verify-2fa/', UserViewSet.as_view({'post': 'verify_2fa'}), name='verify-2fa'),
     path('auth/disable-2fa/', UserViewSet.as_view({'post': 'disable_2fa'}), name='disable-2fa'),
@@ -56,8 +56,8 @@ urlpatterns = [
     path('auth/session/terminate/', UserViewSet.as_view({'post': 'terminate_session'}), name='terminate-session'),
     path('auth/session/terminate-all/', UserViewSet.as_view({'post': 'terminate_all_sessions'}), name='terminate-all-sessions'),
     path('auth/session/health/', UserViewSet.as_view({'get': 'session_health'}), name='session-health'),
-    path('auth/debug/', UserViewSet.as_view({'get': 'debug_auth'}), name='debug-auth'),
-
+    path('auth/refresh-session/', UserViewSet.as_view({'post': 'refresh_session'}), name='refresh-session'),
+    
     # Emergency Access
     path('auth/emergency-access/', UserViewSet.as_view({'post': 'emergency_access'}), name='emergency-access'),
     
@@ -73,7 +73,7 @@ urlpatterns = [
 
     # Patient specific endpoints
     path('patient/dashboard/', PatientViewSet.as_view({'get': 'dashboard'}), name='patient-dashboard'),
-    path('patient/profile/', PatientProfileViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update'}), name='patient-profile'),
+    path('patient/profile/', PatientViewSet.as_view({'get': 'get_profile', 'patch': 'update_profile'}), name='patient-profile-endpoint'),
     path('patient-profiles/<int:pk>/verify-identity/', PatientProfileViewSet.as_view({'post': 'verify_identity'}), name='verify-patient-identity'),
     path('patient-profiles/<int:pk>/update-consent/', PatientProfileViewSet.as_view({'post': 'update_consent'}), name='update-patient-consent'),
     

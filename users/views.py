@@ -83,45 +83,7 @@ class UserViewSet(BaseViewSet):
     """ViewSet for user management."""
     queryset = User.objects.all()
     serializer_class = UserSerializer
-
-    @action(detail=False, methods=['get'], permission_classes=[])  # No permissions for testing
-    def debug_auth(self, request):
-        """Debug authentication status."""
-        
-        # Access the underlying Django request to avoid DRF authentication
-        django_request = request._request
-        
-        debug_info = {
-            # DRF request info
-            'drf_request_type': type(request).__name__,
-            'has_jwt_payload': hasattr(request, 'jwt_payload'),
-            'jwt_payload_user_id': request.jwt_payload.get('user_id') if hasattr(request, 'jwt_payload') else None,
-            'session_id': getattr(request, 'session_id', None),
-            
-            # Django request info (what our middleware sets)
-            'django_user_exists': hasattr(django_request, 'user'),
-            'django_user_type': type(django_request.user).__name__ if hasattr(django_request, 'user') else None,
-            'django_user_id': getattr(django_request.user, 'id', None) if hasattr(django_request, 'user') else None,
-            'django_user_email': getattr(django_request.user, 'email', None) if hasattr(django_request, 'user') else None,
-            'django_user_is_authenticated': getattr(django_request.user, 'is_authenticated', None) if hasattr(django_request, 'user') else None,
-            'django_user_is_anonymous': getattr(django_request.user, 'is_anonymous', None) if hasattr(django_request, 'user') else None,
-            'django_user_is_staff': getattr(django_request.user, 'is_staff', None) if hasattr(django_request, 'user') else None,
-            'django_user_is_approved': getattr(django_request.user, 'is_approved', None) if hasattr(django_request, 'user') else None,
-            'django_user_role': getattr(django_request.user, 'role', None) if hasattr(django_request, 'user') else None,
-            'django_user_has_backend': hasattr(django_request.user, 'backend') if hasattr(django_request, 'user') else False,
-            'django_user_backend': getattr(django_request.user, 'backend', None) if hasattr(django_request, 'user') else None,
-            
-            # JWT payload details (truncated for readability)
-            'jwt_payload_keys': list(request.jwt_payload.keys()) if hasattr(request, 'jwt_payload') else None,
-            
-            # Authentication process
-            'middleware_user_set': (hasattr(django_request, 'user') and 
-                                django_request.user and 
-                                type(django_request.user).__name__ != 'AnonymousUser'),
-        }
-        
-        return Response(debug_info)
-
+    
     def get_permissions(self):
         """Set permissions based on action."""
         permission_map = {
@@ -210,7 +172,7 @@ class UserViewSet(BaseViewSet):
             'message': 'Registration successful. Your account is pending administrator approval.'
         }, status=status.HTTP_201_CREATED)
     
-    @action(detail=False, methods=['post'], permission_classes=[], authentication_classes=[])  # ✅ ADD BOTH OF THESE
+    @action(detail=False, methods=['post'], permission_classes=[], authentication_classes=[])
     def refresh_token(self, request):
         """
         Refresh JWT access token using refresh token.
@@ -278,20 +240,41 @@ class UserViewSet(BaseViewSet):
     def refresh_session(self, request):
         """Refresh session token - simpler than JWT refresh."""
         session_token = request.data.get('session_token')
+        tab_id = request.data.get('tab_id')
         
         if not session_token:
-            return Response({'error': 'Session token required'}, status=400)
+            return Response({
+                'error': 'Session token required'
+            }, status=status.HTTP_400_BAD_REQUEST)
         
-        success, new_token = SessionManager.refresh_session_token(session_token)
-        
-        if not success:
-            return Response({'error': 'Invalid or expired session'}, status=401)
-        
-        return Response({
-            'session_token': new_token,
-            'expires_in': 60 * 60,  # 1 hour
-            'token_type': 'Session'
-        })
+        try:
+            from users.models import UserSession
+            session = UserSession.objects.get(
+                session_token=session_token,
+                is_active=True,
+                expires_at__gt=timezone.now()
+            )
+            
+            # Extend session expiry
+            session.expires_at = timezone.now() + timedelta(hours=1)
+            session.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Session refreshed',
+                'expires_at': session.expires_at.isoformat(),
+                'tab_id': tab_id
+            })
+            
+        except UserSession.DoesNotExist:
+            return Response({
+                'error': 'Invalid or expired session'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        except Exception as e:
+            logger.error(f"Session refresh error: {str(e)}")
+            return Response({
+                'error': 'Session refresh failed'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
     @action(detail=False, methods=['get'])
     def session_health(self, request):
@@ -1049,6 +1032,31 @@ class UserViewSet(BaseViewSet):
             'secret_key': device.secret_key
         })
 
+    @action(detail=False, methods=['get'])
+    def get_2fa_status(self, request):
+        """Get 2FA status for authenticated user."""
+        if not request.user.is_authenticated:
+            return Response({
+                'detail': 'Authentication required'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        user = request.user
+        
+        try:
+            from users.models import TwoFactorDevice
+            device = TwoFactorDevice.objects.get(user=user, confirmed=True)
+            
+            return Response({
+                'enabled': True,
+                'backup_codes_remaining': device.backup_codes.count() if hasattr(device, 'backup_codes') else 0,
+                'last_used': device.last_used_at.isoformat() if device.last_used_at else None
+            })
+        except TwoFactorDevice.DoesNotExist:
+            return Response({
+                'enabled': False,
+                'setup_required': True
+            })
+            
     @action(detail=False, methods=['post'])
     def forgot_password(self, request):
         """Request password reset."""
@@ -1213,61 +1221,49 @@ class UserViewSet(BaseViewSet):
             'denied_count': denied_count,
             'total_requested': len(user_ids)
         })
-
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+        
+    @action(detail=False, methods=['get'])
     def list_user_sessions(self, request):
-        """
-        List active sessions for the authenticated user.
+        """Get user's active sessions."""
+        if not request.user.is_authenticated:
+            return Response({
+                'detail': 'Authentication required'
+            }, status=status.HTTP_401_UNAUTHORIZED)
         
-        Industry standard implementation following:
-        - REST API best practices
-        - Security standards for session management
-        - Django/DRF conventions
-        - Pagination and filtering support
-        """
+        user = request.user
         
-        # Base queryset - only active sessions for the authenticated user
-        queryset = UserSession.objects.filter(
-            user=request.user,
-            is_active=True,
-            expires_at__gt=timezone.now()
-        ).select_related('user', 'pharmaceutical_tenant').order_by('-last_activity')
-        
-        # Optional filtering
-        include_inactive = request.query_params.get('include_inactive', 'false').lower() == 'true'
-        if include_inactive:
-            queryset = UserSession.objects.filter(user=request.user).order_by('-last_activity')
-        
-        # Apply pagination (industry standard)
-        paginator = self.pagination_class()
-        paginated_sessions = paginator.paginate_queryset(queryset, request)
-        
-        # Serialize with context
-        serializer = UserSessionListSerializer(
-            paginated_sessions, 
-            many=True, 
-            context={
-                'request': request,
-                'current_session_id': getattr(request, 'session_id', None)
-            }
-        )
-        
-        # Industry standard response format
-        response_data = {
-            'results': serializer.data,
-            'count': paginator.page.paginator.count,
-            'next': paginator.get_next_link(),
-            'previous': paginator.get_previous_link(),
-            'current_session_id': getattr(request, 'session_id', None),
-            'active_sessions_count': UserSession.objects.filter(
-                user=request.user,
+        try:
+            from users.models import UserSession
+            sessions = UserSession.objects.filter(
+                user=user,
                 is_active=True,
                 expires_at__gt=timezone.now()
-            ).count()
-        }
+            ).order_by('-created_at')
+            
+            session_data = []
+            for session in sessions:
+                session_data.append({
+                    'session_id': str(session.session_id),
+                    'created_at': session.created_at.isoformat(),
+                    'expires_at': session.expires_at.isoformat(),
+                    'ip_address': session.ip_address,
+                    'user_agent': session.user_agent[:100] if session.user_agent else 'Unknown',
+                    'is_current': session.session_id == getattr(request, 'session_id', None),
+                    'last_activity': session.last_activity.isoformat() if hasattr(session, 'last_activity') and session.last_activity else session.created_at.isoformat()
+                })
+            
+            return Response({
+                'sessions': session_data,
+                'total_sessions': len(session_data)
+            })
+            
+        except Exception as e:
+            logger.error(f"Failed to list sessions for user {user.id}: {str(e)}")
+            return Response({
+                'sessions': [],
+                'total_sessions': 0
+            })    
         
-        return Response(response_data)
-
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
     def terminate_session(self, request):
         """
@@ -2488,6 +2484,52 @@ class PatientViewSet(viewsets.ModelViewSet):
         
         return actions
     
+    @action(detail=False, methods=['get'], url_path='profile')
+    def get_profile(self, request):
+        """Get patient profile."""
+        user = request.user
+        
+        try:
+            from users.models import PatientProfile
+            profile, created = PatientProfile.objects.get_or_create(user=user)
+            
+            from users.serializers import PatientProfileSerializer
+            serializer = PatientProfileSerializer(profile)
+            return Response(serializer.data)
+            
+        except Exception as e:
+            logger.error(f"Failed to get profile for user {user.id}: {str(e)}")
+            return Response(
+                {'detail': 'Failed to load profile'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['patch'], url_path='profile')  
+    def update_profile(self, request):
+        """Update patient profile."""
+        user = request.user
+        
+        try:
+            from users.models import PatientProfile
+            profile, created = PatientProfile.objects.get_or_create(user=user)
+            
+            from users.serializers import PatientProfileSerializer
+            serializer = PatientProfileSerializer(profile, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            
+            return Response({
+                'detail': 'Profile updated successfully',
+                'profile': serializer.data
+            })
+            
+        except Exception as e:
+            logger.error(f"Failed to update profile for user {user.id}: {str(e)}")
+            return Response(
+                {'detail': 'Failed to update profile'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            
     @action(detail=False, methods=['get'], url_path='dashboard')
     def dashboard(self, request):
         """
