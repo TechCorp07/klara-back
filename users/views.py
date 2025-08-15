@@ -1974,392 +1974,11 @@ class PatientViewSet(viewsets.ModelViewSet):
         
         return User.objects.none()
     
-    @action(detail=False, methods=['get'], url_path='dashboard')
-    def dashboard(self, request):
-        """
-        Enhanced patient dashboard endpoint with comprehensive rare disease monitoring.
-        Returns structured data matching frontend interface requirements.
-        """
-        try:
-            user = request.user
-            
-            # Get or create patient profile
-            patient_profile, created = PatientProfile.objects.get_or_create(
-                user=user,
-                defaults={
-                    'medical_record_number': f"MRN-{user.id:06d}",
-                    'emergency_contact_name': '',
-                    'emergency_contact_phone': '',
-                    'emergency_contact_relationship': ''
-                }
-            )
-            
-            # Get or create medical record
-            from healthcare.models import MedicalRecord
-            medical_record = None
-            try:
-                medical_record = MedicalRecord.objects.filter(patient=user).first()
-            except:
-                pass
-            
-            # Build patient info matching frontend expectations
-            patient_info = {
-                "name": user.get_full_name() or user.username,
-                "has_rare_condition": medical_record.has_rare_condition if medical_record else False,
-                "verification_status": "verified" if patient_profile.identity_verified else "unverified",
-                "days_until_verification": patient_profile.days_until_verification_required() or 30
-            }
-            
-            # Add rare condition info if exists
-            if medical_record and medical_record.has_rare_condition:
-                rare_conditions = []
-                try:
-                    from healthcare.models import Condition
-                    conditions = Condition.objects.filter(
-                        medical_record=medical_record,
-                        is_rare_condition=True,
-                        status='active'
-                    )
-                    for condition in conditions:
-                        rare_conditions.append({
-                            "name": condition.name,
-                            "diagnosed_date": condition.diagnosed_date.isoformat() if condition.diagnosed_date else None,
-                            "severity": "moderate"  # You can add actual severity logic
-                        })
-                except:
-                    pass
-                
-                if rare_conditions:
-                    patient_info["rare_condition"] = rare_conditions[0]["name"]  # For backward compatibility
-                    patient_info["rare_conditions"] = rare_conditions
-            
-            # Get alerts
-            alerts = []
-            
-            # Add verification alert if needed
-            if not patient_profile.identity_verified:
-                days_until = patient_profile.days_until_verification_required() or 30
-                if days_until <= 7:
-                    alerts.append({
-                        "id": 1,
-                        "severity": "critical" if days_until <= 3 else "warning",
-                        "message": f"Identity verification required within {days_until} days",
-                        "type": "verification",
-                        "acknowledged": False,
-                        "created_at": timezone.now().isoformat()
-                    })
-            
-            # Add medication adherence alerts
-            try:
-                from medication.models import Medication, AdherenceRecord
-                active_meds = Medication.objects.filter(patient=user, active=True)
-                
-                for med in active_meds:
-                    # Check recent adherence
-                    recent_adherence = AdherenceRecord.objects.filter(
-                        medication=med,
-                        period_end__gte=timezone.now().date() - timedelta(days=7)
-                    ).first()
-                    
-                    if recent_adherence and recent_adherence.adherence_rate < 80:
-                        alerts.append({
-                            "id": 100 + med.id,
-                            "severity": "warning",
-                            "message": f"Low adherence for {med.name}: {recent_adherence.adherence_rate}%",
-                            "type": "medication",
-                            "acknowledged": False,
-                            "created_at": timezone.now().isoformat()
-                        })
-            except:
-                pass
-            
-            # Get appointments
-            appointments = {
-                "upcoming": [],
-                "recent": []
-            }
-            try:
-                from telemedicine.models import Appointment
-                upcoming_appointments = Appointment.objects.filter(
-                    patient=user,
-                    scheduled_time__gte=timezone.now(),
-                    status__in=['scheduled', 'confirmed']
-                ).order_by('scheduled_time')[:5]
-                
-                for apt in upcoming_appointments:
-                    appointments["upcoming"].append({
-                        "id": apt.id,
-                        "date": apt.scheduled_time.date().isoformat(),
-                        "time": apt.scheduled_time.time().isoformat(),
-                        "provider_name": apt.provider.get_full_name() if apt.provider else "Unknown",
-                        "provider_specialty": getattr(apt.provider, 'specialty', 'General Medicine') if apt.provider else "General Medicine",
-                        "appointment_type": apt.get_appointment_type_display() if hasattr(apt, 'get_appointment_type_display') else apt.appointment_type,
-                        "is_telemedicine": getattr(apt, 'is_telemedicine', False),
-                        "location": getattr(apt, 'location', None),
-                        "preparation_notes": getattr(apt, 'notes', None),
-                        "can_reschedule": True,
-                        "can_cancel": True
-                    })
-                    
-                recent_apts = Appointment.objects.filter(
-                    patient=user,
-                    scheduled_time__lt=timezone.now(),
-                    status__in=['completed']
-                ).order_by('-scheduled_time')[:3]
-            
-                for apt in recent_apts:
-                    appointments["recent"].append({
-                        "date": apt.scheduled_time.date().isoformat(),
-                        "provider": apt.provider.get_full_name() if apt.provider else "Unknown",
-                        "summary": getattr(apt, 'notes', 'Consultation completed'),
-                        "follow_up_required": getattr(apt, 'follow_up_required', False)
-                    })
-                
-            except Exception as e:
-                logger.error(f"Error getting appointments data: {str(e)}")
-                pass
-            
-            try:
-                medications = self._get_medication_data(user)
-            except Exception as e:
-                logger.error(f"Error getting medication data: {str(e)}")
-                medications = {
-                    "active_medications": [],
-                    "adherence_summary": {
-                        "overall_rate": 0,
-                        "last_7_days": 0,
-                        "missed_doses_today": 0,
-                        "on_time_rate": 0
-                    },
-                    "upcoming_refills": []
-                }
-            
-            try:
-                from medication.models import Medication, MedicationIntake
-                active_meds = Medication.objects.filter(patient=user, active=True)
-                medications["total_medications"] = active_meds.count()
-                
-                # Calculate overall adherence
-                total_adherence = 0
-                adherence_count = 0
-                
-                for med in active_meds:
-                    med_data = {
-                        "id": med.id,
-                        "name": med.name,
-                        "dosage": med.dosage,
-                        "frequency": med.frequency,
-                        "for_rare_condition": med.for_rare_condition
-                    }
-                    
-                    # Get recent adherence
-                    recent_adherence = AdherenceRecord.objects.filter(
-                        medication=med,
-                        period_end__gte=timezone.now().date() - timedelta(days=30)
-                    ).first()
-                    
-                    if recent_adherence:
-                        med_data["adherence_rate"] = recent_adherence.adherence_rate
-                        total_adherence += recent_adherence.adherence_rate
-                        adherence_count += 1
-                    
-                    medications["active_medications"].append(med_data)
-                
-                if adherence_count > 0:
-                    medications["adherence_rate"] = round(total_adherence / adherence_count, 1)
-                
-                # Get next dose
-                next_intake = MedicationIntake.objects.filter(
-                    patient=user,
-                    scheduled_time__gte=timezone.now(),
-                    status='pending'
-                ).order_by('scheduled_time').first()
-                
-                if next_intake:
-                    medications["next_dose"] = {
-                        "medication": next_intake.medication.name,
-                        "time": next_intake.scheduled_time.isoformat()
-                    }
-            except:
-                pass
-
-            # Get vitals
-            vitals = []
-            try:
-                from healthcare.models import VitalSign
-                if medical_record:
-                    recent_vitals = VitalSign.objects.filter(
-                        medical_record=medical_record
-                    ).order_by('-measured_at')[:10]
-                    
-                    for vital in recent_vitals:
-                        vitals.append({
-                            "type": vital.measurement_type,
-                            "value": vital.value,
-                            "unit": vital.unit,
-                            "measured_at": vital.measured_at.isoformat(),
-                            "is_abnormal": vital.is_abnormal,
-                            "source": vital.source
-                        })
-            except:
-                pass
-
-            # Get care team
-            care_team = []
-            try:
-                # Primary physician
-                if medical_record and medical_record.primary_physician:
-                    care_team.append({
-                        "id": medical_record.primary_physician.id,
-                        "name": medical_record.primary_physician.get_full_name(),
-                        "role": "Primary Physician",
-                        "specialty": getattr(medical_record.primary_physician.provider_profile, 'specialty', 'General Practice') if hasattr(medical_record.primary_physician, 'provider_profile') else 'General Practice'
-                    })
-                
-                # Authorized caregivers
-                from users.models import PatientAuthorizedCaregiver
-                authorized_caregivers = PatientAuthorizedCaregiver.objects.filter(
-                    patient=patient_profile,
-                    is_active=True
-                )
-                
-                for auth_caregiver in authorized_caregivers:
-                    care_team.append({
-                        "id": auth_caregiver.caregiver.id,
-                        "name": auth_caregiver.caregiver.get_full_name(),
-                        "role": "Caregiver",
-                        "relationship": auth_caregiver.relationship
-                    })
-            except:
-                pass
-            
-            # Get research participation
-            research_participation = []
-            try:
-                from users.models import ResearchConsent
-                # Get active research consents
-                research_consents = ResearchConsent.objects.filter(
-                    user=user,
-                    consented=True,
-                    withdrawn=False
-                ).select_related('pharmaceutical_tenant')
-                
-                for consent in research_consents:
-                    research_participation.append({
-                        "study_id": str(consent.id),
-                        "study_name": f"{consent.consent_type.replace('_', ' ').title()} - {consent.study_identifier}",
-                        "enrolled_date": consent.consent_date.isoformat() if consent.consent_date else None,
-                        "status": "active" if not consent.withdrawn else "withdrawn",
-                        "pharmaceutical_company": consent.pharmaceutical_tenant.name if consent.pharmaceutical_tenant else None
-                    })
-            except Exception as e:
-                logger.error(f"Error getting research participation: {str(e)}")
-                pass
-
-            # Get community groups (chat groups)
-            community_groups = []
-            try:
-                from community.models import CommunityMembership
-                
-                # Get user's community groups
-                user_memberships = CommunityMembership.objects.filter(
-                    user=user,
-                    status='approved'
-                ).select_related('group')[:5]
-                
-                for membership in user_memberships:
-                    group = membership.group
-                    community_groups.append({
-                        "id": group.id,
-                        "name": group.name,
-                        "description": group.description,
-                        "group_type": group.group_type,
-                        "member_count": group.member_count,
-                        "is_member": True,
-                        "last_activity": group.updated_at.isoformat(),
-                        "unread_messages": 0  # Implement based on your needs
-                    })
-                    
-            except Exception as e:
-                logger.error(f"Error getting community groups: {str(e)}")
-                community_groups = []
-
-            dashboard_data = {
-                "patient_info": patient_info,
-                "health_summary": {
-                    "overall_status": "good",
-                    "last_checkup": appointments[0]["scheduled_datetime"] if appointments else None,
-                    "next_appointment": appointments[0]["scheduled_datetime"] if appointments else None,
-                    "identity_verified": patient_info.get("verification_status") == "verified",
-                    "days_until_verification_required": patient_info.get("days_until_verification", 30)
-                },
-                "medications": medications,
-                "vitals": {
-                    "current": vitals[-1] if vitals else {},
-                    "trends": {
-                        "improving": [],
-                        "stable": [],
-                        "concerning": []
-                    },
-                    "last_recorded": vitals[-1]["recorded_at"] if vitals else None
-                },
-                "wearable_data": {
-                    "connected_devices": [],
-                    "recent_data": {},
-                    "sync_status": "disconnected"
-                },
-                "appointments": appointments,
-                "care_team": care_team,
-                "research_participation": research_participation,
-                "community_groups": community_groups,
-                "alerts": alerts,
-                "quick_actions": [
-                    {
-                        "id": "log_medication",
-                        "title": "Log Medication",
-                        "description": "Record medication taken",
-                        "icon": "pill",
-                        "href": "/patient/medications/log",
-                        "priority": "high"
-                    },
-                    {
-                        "id": "record_vitals", 
-                        "title": "Record Vitals",
-                        "description": "Log vital signs",
-                        "icon": "heart",
-                        "href": "/patient/vitals/record", 
-                        "priority": "medium"
-                    }
-                ]
-            }
-
-            return Response(dashboard_data)
-
-        except Exception as e:
-            logger.error(f"Error generating patient dashboard for user {request.user.id}: {str(e)}")
-            
-            # Return minimal valid response structure
-            return Response({
-                "patient_info": {
-                    "name": request.user.get_full_name() or request.user.username,
-                    "has_rare_condition": False,
-                    "verification_status": "unverified",
-                    "days_until_verification": 30
-                },
-                "alerts": [],
-                "appointments": [],
-                "medications": {
-                    "active_medications": [],
-                    "total_medications": 0,
-                    "adherence_rate": 0,
-                    "next_dose": None
-                },
-                "vitals": [],
-                "care_team": [],
-                "research_participation": [],
-                "community_groups": []
-            })
-
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action."""
+        from users.serializers import PatientProfileSerializer
+        return PatientProfileSerializer
+    
     def _get_medication_data(self, user):
         """Get comprehensive medication adherence data."""
         try:
@@ -2808,6 +2427,453 @@ class PatientViewSet(viewsets.ModelViewSet):
             logger.error(f"Error generating health alerts for user {user.id}: {str(e)}")
             return []
     
+    def _get_quick_actions(self):
+        """Get quick action items for the dashboard."""
+        actions = [
+            {
+                "id": "schedule-appointment",
+                "title": "Schedule Appointment",
+                "description": "Book a visit with your healthcare provider",
+                "icon": "calendar",
+                "href": "/patient/appointments/schedule",
+                "priority": "high",
+                "requires_verification": True
+            },
+            {
+                "id": "record-vitals",
+                "title": "Record Vital Signs",
+                "description": "Log your current vital signs and symptoms",
+                "icon": "activity",
+                "href": "/patient/vitals/record",
+                "priority": "medium",
+                "requires_verification": False
+            },
+            {
+                "id": "medication-log",
+                "title": "Log Medication",
+                "description": "Record medication taken and adherence",
+                "icon": "pill",
+                "href": "/patient/medications/log",
+                "priority": "high",
+                "requires_verification": False
+            },
+            {
+                "id": "health-records",
+                "title": "View Health Records",
+                "description": "Access your medical records and test results",
+                "icon": "file-medical",
+                "href": "/patient/health-records",
+                "priority": "medium",
+                "requires_verification": True
+            },
+            {
+                "id": "connect-device",
+                "title": "Connect Smart Watch",
+                "description": "Connect your wearable device for health monitoring",
+                "icon": "device",
+                "href": "/patient/devices/connect",
+                "priority": "medium",
+                "requires_verification": False
+            },
+            {
+                "id": "research-studies",
+                "title": "Research Studies",
+                "description": "Explore available research opportunities",
+                "icon": "research",
+                "href": "/patient/research/studies",
+                "priority": "low",
+                "requires_verification": True
+            }
+        ]
+        
+        return actions
+    
+    @action(detail=False, methods=['get'], url_path='dashboard')
+    def dashboard(self, request):
+        """
+        Enhanced patient dashboard endpoint with comprehensive rare disease monitoring.
+        Returns structured data matching frontend interface requirements.
+        """
+        try:
+            user = request.user
+            
+            # Get or create patient profile
+            patient_profile, created = PatientProfile.objects.get_or_create(
+                user=user,
+                defaults={
+                    'medical_record_number': f"MRN-{user.id:06d}",
+                    'emergency_contact_name': '',
+                    'emergency_contact_phone': '',
+                    'emergency_contact_relationship': ''
+                }
+            )
+            
+            # Get or create medical record
+            from healthcare.models import MedicalRecord
+            medical_record = None
+            try:
+                medical_record = MedicalRecord.objects.filter(patient=user).first()
+            except:
+                pass
+            
+            # Build patient info matching frontend expectations
+            patient_info = {
+                "name": user.get_full_name() or user.username,
+                "has_rare_condition": medical_record.has_rare_condition if medical_record else False,
+                "verification_status": "verified" if patient_profile.identity_verified else "unverified",
+                "days_until_verification": patient_profile.days_until_verification_required() or 30
+            }
+            
+            # Add rare condition info if exists
+            if medical_record and medical_record.has_rare_condition:
+                rare_conditions = []
+                try:
+                    from healthcare.models import Condition
+                    conditions = Condition.objects.filter(
+                        medical_record=medical_record,
+                        is_rare_condition=True,
+                        status='active'
+                    )
+                    for condition in conditions:
+                        rare_conditions.append({
+                            "name": condition.name,
+                            "diagnosed_date": condition.diagnosed_date.isoformat() if condition.diagnosed_date else None,
+                            "severity": "moderate"  # You can add actual severity logic
+                        })
+                except:
+                    pass
+                
+                if rare_conditions:
+                    patient_info["rare_condition"] = rare_conditions[0]["name"]  # For backward compatibility
+                    patient_info["rare_conditions"] = rare_conditions
+            
+            # Get alerts
+            alerts = []
+            
+            # Add verification alert if needed
+            if not patient_profile.identity_verified:
+                days_until = patient_profile.days_until_verification_required() or 30
+                if days_until <= 7:
+                    alerts.append({
+                        "id": 1,
+                        "severity": "critical" if days_until <= 3 else "warning",
+                        "message": f"Identity verification required within {days_until} days",
+                        "type": "verification",
+                        "acknowledged": False,
+                        "created_at": timezone.now().isoformat()
+                    })
+            
+            # Add medication adherence alerts
+            try:
+                from medication.models import Medication, AdherenceRecord
+                active_meds = Medication.objects.filter(patient=user, active=True)
+                
+                for med in active_meds:
+                    # Check recent adherence
+                    recent_adherence = AdherenceRecord.objects.filter(
+                        medication=med,
+                        period_end__gte=timezone.now().date() - timedelta(days=7)
+                    ).first()
+                    
+                    if recent_adherence and recent_adherence.adherence_rate < 80:
+                        alerts.append({
+                            "id": 100 + med.id,
+                            "severity": "warning",
+                            "message": f"Low adherence for {med.name}: {recent_adherence.adherence_rate}%",
+                            "type": "medication",
+                            "acknowledged": False,
+                            "created_at": timezone.now().isoformat()
+                        })
+            except:
+                pass
+            
+            # Get appointments
+            appointments = {
+                "upcoming": [],
+                "recent": []
+            }
+            try:
+                from telemedicine.models import Appointment
+                upcoming_appointments = Appointment.objects.filter(
+                    patient=user,
+                    scheduled_time__gte=timezone.now(),
+                    status__in=['scheduled', 'confirmed']
+                ).order_by('scheduled_time')[:5]
+                
+                for apt in upcoming_appointments:
+                    appointments["upcoming"].append({
+                        "id": apt.id,
+                        "date": apt.scheduled_time.date().isoformat(),
+                        "time": apt.scheduled_time.time().isoformat(),
+                        "provider_name": apt.provider.get_full_name() if apt.provider else "Unknown",
+                        "provider_specialty": getattr(apt.provider, 'specialty', 'General Medicine') if apt.provider else "General Medicine",
+                        "appointment_type": apt.get_appointment_type_display() if hasattr(apt, 'get_appointment_type_display') else apt.appointment_type,
+                        "is_telemedicine": getattr(apt, 'is_telemedicine', False),
+                        "location": getattr(apt, 'location', None),
+                        "preparation_notes": getattr(apt, 'notes', None),
+                        "can_reschedule": True,
+                        "can_cancel": True
+                    })
+                    
+                recent_apts = Appointment.objects.filter(
+                    patient=user,
+                    scheduled_time__lt=timezone.now(),
+                    status__in=['completed']
+                ).order_by('-scheduled_time')[:3]
+            
+                for apt in recent_apts:
+                    appointments["recent"].append({
+                        "date": apt.scheduled_time.date().isoformat(),
+                        "provider": apt.provider.get_full_name() if apt.provider else "Unknown",
+                        "summary": getattr(apt, 'notes', 'Consultation completed'),
+                        "follow_up_required": getattr(apt, 'follow_up_required', False)
+                    })
+                
+            except Exception as e:
+                logger.error(f"Error getting appointments data: {str(e)}")
+                pass
+            
+            try:
+                medications = self._get_medication_data(user)
+            except Exception as e:
+                logger.error(f"Error getting medication data: {str(e)}")
+                medications = {
+                    "active_medications": [],
+                    "adherence_summary": {
+                        "overall_rate": 0,
+                        "last_7_days": 0,
+                        "missed_doses_today": 0,
+                        "on_time_rate": 0
+                    },
+                    "upcoming_refills": []
+                }
+            
+            try:
+                from medication.models import Medication, MedicationIntake
+                active_meds = Medication.objects.filter(patient=user, active=True)
+                medications["total_medications"] = active_meds.count()
+                
+                # Calculate overall adherence
+                total_adherence = 0
+                adherence_count = 0
+                
+                for med in active_meds:
+                    med_data = {
+                        "id": med.id,
+                        "name": med.name,
+                        "dosage": med.dosage,
+                        "frequency": med.frequency,
+                        "for_rare_condition": med.for_rare_condition
+                    }
+                    
+                    # Get recent adherence
+                    recent_adherence = AdherenceRecord.objects.filter(
+                        medication=med,
+                        period_end__gte=timezone.now().date() - timedelta(days=30)
+                    ).first()
+                    
+                    if recent_adherence:
+                        med_data["adherence_rate"] = recent_adherence.adherence_rate
+                        total_adherence += recent_adherence.adherence_rate
+                        adherence_count += 1
+                    
+                    medications["active_medications"].append(med_data)
+                
+                if adherence_count > 0:
+                    medications["adherence_rate"] = round(total_adherence / adherence_count, 1)
+                
+                # Get next dose
+                next_intake = MedicationIntake.objects.filter(
+                    patient=user,
+                    scheduled_time__gte=timezone.now(),
+                    status='pending'
+                ).order_by('scheduled_time').first()
+                
+                if next_intake:
+                    medications["next_dose"] = {
+                        "medication": next_intake.medication.name,
+                        "time": next_intake.scheduled_time.isoformat()
+                    }
+            except:
+                pass
+
+            # Get vitals
+            vitals = []
+            try:
+                from healthcare.models import VitalSign
+                if medical_record:
+                    recent_vitals = VitalSign.objects.filter(
+                        medical_record=medical_record
+                    ).order_by('-measured_at')[:10]
+                    
+                    for vital in recent_vitals:
+                        vitals.append({
+                            "type": vital.measurement_type,
+                            "value": vital.value,
+                            "unit": vital.unit,
+                            "measured_at": vital.measured_at.isoformat(),
+                            "is_abnormal": vital.is_abnormal,
+                            "source": vital.source
+                        })
+            except:
+                pass
+
+            # Get care team
+            care_team = []
+            try:
+                # Primary physician
+                if medical_record and medical_record.primary_physician:
+                    care_team.append({
+                        "id": medical_record.primary_physician.id,
+                        "name": medical_record.primary_physician.get_full_name(),
+                        "role": "Primary Physician",
+                        "specialty": getattr(medical_record.primary_physician.provider_profile, 'specialty', 'General Practice') if hasattr(medical_record.primary_physician, 'provider_profile') else 'General Practice'
+                    })
+                
+                # Authorized caregivers
+                from users.models import PatientAuthorizedCaregiver
+                authorized_caregivers = PatientAuthorizedCaregiver.objects.filter(
+                    patient=patient_profile,
+                    is_active=True
+                )
+                
+                for auth_caregiver in authorized_caregivers:
+                    care_team.append({
+                        "id": auth_caregiver.caregiver.id,
+                        "name": auth_caregiver.caregiver.get_full_name(),
+                        "role": "Caregiver",
+                        "relationship": auth_caregiver.relationship
+                    })
+            except:
+                pass
+            
+            # Get research participation
+            research_participation = []
+            try:
+                from users.models import ResearchConsent
+                # Get active research consents
+                research_consents = ResearchConsent.objects.filter(
+                    user=user,
+                    consented=True,
+                    withdrawn=False
+                ).select_related('pharmaceutical_tenant')
+                
+                for consent in research_consents:
+                    research_participation.append({
+                        "study_id": str(consent.id),
+                        "study_name": f"{consent.consent_type.replace('_', ' ').title()} - {consent.study_identifier}",
+                        "enrolled_date": consent.consent_date.isoformat() if consent.consent_date else None,
+                        "status": "active" if not consent.withdrawn else "withdrawn",
+                        "pharmaceutical_company": consent.pharmaceutical_tenant.name if consent.pharmaceutical_tenant else None
+                    })
+            except Exception as e:
+                logger.error(f"Error getting research participation: {str(e)}")
+                pass
+
+            # Get community groups (chat groups)
+            community_groups = []
+            try:
+                from community.models import CommunityMembership
+                
+                # Get user's community groups
+                user_memberships = CommunityMembership.objects.filter(
+                    user=user,
+                    status='approved'
+                ).select_related('group')[:5]
+                
+                for membership in user_memberships:
+                    group = membership.group
+                    community_groups.append({
+                        "id": group.id,
+                        "name": group.name,
+                        "description": group.description,
+                        "group_type": group.group_type,
+                        "member_count": group.member_count,
+                        "is_member": True,
+                        "last_activity": group.updated_at.isoformat(),
+                        "unread_messages": 0  # Implement based on your needs
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error getting community groups: {str(e)}")
+                community_groups = []
+
+            dashboard_data = {
+                "patient_info": patient_info,
+                "health_summary": {
+                    "overall_status": "good",
+                    "last_checkup": appointments[0]["scheduled_datetime"] if appointments else None,
+                    "next_appointment": appointments[0]["scheduled_datetime"] if appointments else None,
+                    "identity_verified": patient_info.get("verification_status") == "verified",
+                    "days_until_verification_required": patient_info.get("days_until_verification", 30)
+                },
+                "medications": medications,
+                "vitals": {
+                    "current": vitals[-1] if vitals else {},
+                    "trends": {
+                        "improving": [],
+                        "stable": [],
+                        "concerning": []
+                    },
+                    "last_recorded": vitals[-1]["recorded_at"] if vitals else None
+                },
+                "wearable_data": {
+                    "connected_devices": [],
+                    "recent_data": {},
+                    "sync_status": "disconnected"
+                },
+                "appointments": appointments,
+                "care_team": care_team,
+                "research_participation": research_participation,
+                "community_groups": community_groups,
+                "alerts": alerts,
+                "quick_actions": [
+                    {
+                        "id": "log_medication",
+                        "title": "Log Medication",
+                        "description": "Record medication taken",
+                        "icon": "pill",
+                        "href": "/patient/medications/log",
+                        "priority": "high"
+                    },
+                    {
+                        "id": "record_vitals", 
+                        "title": "Record Vitals",
+                        "description": "Log vital signs",
+                        "icon": "heart",
+                        "href": "/patient/vitals/record", 
+                        "priority": "medium"
+                    }
+                ]
+            }
+
+            return Response(dashboard_data)
+
+        except Exception as e:
+            logger.error(f"Error generating patient dashboard for user {request.user.id}: {str(e)}")
+            
+            # Return minimal valid response structure
+            return Response({
+                "patient_info": {
+                    "name": request.user.get_full_name() or request.user.username,
+                    "has_rare_condition": False,
+                    "verification_status": "unverified",
+                    "days_until_verification": 30
+                },
+                "alerts": [],
+                "appointments": [],
+                "medications": {
+                    "active_medications": [],
+                    "total_medications": 0,
+                    "adherence_rate": 0,
+                    "next_dose": None
+                },
+                "vitals": [],
+                "care_team": [],
+                "research_participation": [],
+                "community_groups": []
+            })
+    
     @action(detail=False, methods=['post'])
     def send_message_to_provider(self, request):
         """Send message to a provider."""
@@ -3110,66 +3176,99 @@ class PatientViewSet(viewsets.ModelViewSet):
                 'error': 'Failed to regenerate genetic analysis.'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    def _get_quick_actions(self):
-        """Get quick action items for the dashboard."""
-        actions = [
-            {
-                "id": "schedule-appointment",
-                "title": "Schedule Appointment",
-                "description": "Book a visit with your healthcare provider",
-                "icon": "calendar",
-                "href": "/patient/appointments/schedule",
-                "priority": "high",
-                "requires_verification": True
-            },
-            {
-                "id": "record-vitals",
-                "title": "Record Vital Signs",
-                "description": "Log your current vital signs and symptoms",
-                "icon": "activity",
-                "href": "/patient/vitals/record",
-                "priority": "medium",
-                "requires_verification": False
-            },
-            {
-                "id": "medication-log",
-                "title": "Log Medication",
-                "description": "Record medication taken and adherence",
-                "icon": "pill",
-                "href": "/patient/medications/log",
-                "priority": "high",
-                "requires_verification": False
-            },
-            {
-                "id": "health-records",
-                "title": "View Health Records",
-                "description": "Access your medical records and test results",
-                "icon": "file-medical",
-                "href": "/patient/health-records",
-                "priority": "medium",
-                "requires_verification": True
-            },
-            {
-                "id": "connect-device",
-                "title": "Connect Smart Watch",
-                "description": "Connect your wearable device for health monitoring",
-                "icon": "device",
-                "href": "/patient/devices/connect",
-                "priority": "medium",
-                "requires_verification": False
-            },
-            {
-                "id": "research-studies",
-                "title": "Research Studies",
-                "description": "Explore available research opportunities",
-                "icon": "research",
-                "href": "/patient/research/studies",
-                "priority": "low",
-                "requires_verification": True
-            }
-        ]
+    @action(detail=False, methods=['get'], url_path='privacy-settings')
+    def privacy_settings(self, request):
+        """Get patient privacy settings."""
+        user = request.user
         
-        return actions
+        try:
+            from users.models import PatientProfile
+            profile, created = PatientProfile.objects.get_or_create(user=user)
+            
+            privacy_settings = {
+                'share_data_for_research': getattr(profile, 'research_participation_consent', False),
+                'share_data_with_providers': getattr(profile, 'provider_data_sharing_consent', True),
+                'allow_marketing_communications': getattr(profile, 'marketing_communications_consent', False),
+                'data_retention_consent': getattr(profile, 'data_retention_consent', True),
+                'anonymous_usage_analytics': getattr(profile, 'anonymous_analytics_consent', False),
+                'medication_adherence_monitoring_consent': getattr(profile, 'medication_adherence_monitoring_consent', True),
+                'vitals_monitoring_consent': getattr(profile, 'vitals_monitoring_consent', True),
+            }
+            
+            return Response(privacy_settings)
+            
+        except Exception as e:
+            logger.error(f"Failed to load privacy settings for user {user.id}: {str(e)}")
+            return Response(
+                {'detail': 'Failed to load privacy settings'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['patch'], url_path='privacy-settings')
+    def update_privacy_settings(self, request):
+        """Update patient privacy settings."""
+        user = request.user
+        
+        try:
+            from users.models import PatientProfile
+            profile, created = PatientProfile.objects.get_or_create(user=user)
+            
+            # Update privacy settings fields
+            valid_fields = [
+                'share_data_for_research', 'share_data_with_providers', 
+                'allow_marketing_communications', 'data_retention_consent',
+                'anonymous_usage_analytics', 'medication_adherence_monitoring_consent',
+                'vitals_monitoring_consent'
+            ]
+            
+            # Map frontend fields to model fields
+            field_mapping = {
+                'share_data_for_research': 'research_participation_consent',
+                'share_data_with_providers': 'provider_data_sharing_consent',
+                'allow_marketing_communications': 'marketing_communications_consent',
+                'data_retention_consent': 'data_retention_consent',
+                'anonymous_usage_analytics': 'anonymous_analytics_consent',
+                'medication_adherence_monitoring_consent': 'medication_adherence_monitoring_consent',
+                'vitals_monitoring_consent': 'vitals_monitoring_consent',
+            }
+            
+            updated_fields = []
+            for frontend_field, model_field in field_mapping.items():
+                if frontend_field in request.data:
+                    old_value = getattr(profile, model_field, None)
+                    new_value = request.data[frontend_field]
+                    
+                    if old_value != new_value:
+                        setattr(profile, model_field, new_value)
+                        updated_fields.append(model_field)
+                        
+                        # Log consent change for audit trail
+                        try:
+                            from users.models import ConsentRecord
+                            ConsentRecord.objects.create(
+                                user=user,
+                                consent_type=model_field.upper(),
+                                consented=new_value,
+                                signature_ip=self.get_client_ip(request),
+                                signature_user_agent=request.META.get('HTTP_USER_AGENT', '')
+                            )
+                        except Exception as consent_error:
+                            logger.warning(f"Failed to log consent change: {str(consent_error)}")
+            
+            if updated_fields:
+                profile.save(update_fields=updated_fields)
+            
+            return Response({
+                'detail': 'Privacy settings updated successfully',
+                'updated_fields': updated_fields
+            })
+            
+        except Exception as e:
+            logger.error(f"Failed to update privacy settings for user {user.id}: {str(e)}")
+            return Response(
+                {'detail': 'Failed to update privacy settings'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     # Helper methods for calculations
     def _calculate_overall_health_status(self, user, patient_profile, medical_record):

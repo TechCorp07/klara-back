@@ -99,6 +99,7 @@ urlpatterns = [
     # Health alerts endpoints
     path('patient/alerts/', PatientViewSet.as_view({'get': 'alerts_list'}), name='patient-alerts'),
     path('patient/alerts/<int:alert_id>/acknowledge/', PatientViewSet.as_view({'post': 'acknowledge_alert'}), name='patient-acknowledge-alert'),
+    path('patient/privacy-settings/', PatientViewSet.as_view({'get': 'privacy_settings', 'patch': 'update_privacy_settings'}), name='patient-privacy-settings'),
     
     # Research participation endpoints
     path('patient/research/available-studies/', PatientViewSet.as_view({'get': 'available_research_studies'}), name='patient-research-studies'),
