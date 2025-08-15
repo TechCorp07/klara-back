@@ -171,109 +171,76 @@ class UserViewSet(BaseViewSet):
             'user': UserSerializer(user).data,
             'message': 'Registration successful. Your account is pending administrator approval.'
         }, status=status.HTTP_201_CREATED)
-    
-    @action(detail=False, methods=['post'], permission_classes=[], authentication_classes=[])
-    def refresh_token(self, request):
-        """
-        Refresh JWT access token using refresh token.
-        No DRF authentication required since we handle refresh token validation manually.
-        """
-        refresh_token = request.data.get('refresh_token')
-        
-        if not refresh_token:
-            return Response({
-                'error': 'Refresh token required',
-                'detail': 'Refresh token is required for token renewal'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Get client information for security logging
-        ip_address = self.get_client_ip(request)
-        user_agent = self.get_user_agent(request)
-        
-        # Attempt to refresh the token using the refresh token manager
-        success, new_access_token, error_message = JWTAuthenticationManager.refresh_access_token(
-            refresh_token, ip_address, user_agent
-        )
-        
-        if not success:
-            return Response({
-                'error': 'Token refresh failed',
-                'detail': error_message or 'Unable to refresh token'
-            }, status=status.HTTP_401_UNAUTHORIZED)
-        
-        # Get user info from the new token for response
-        try:
-            import jwt
-            unverified_payload = jwt.decode(new_access_token, options={"verify_signature": False})
-            user_id = unverified_payload.get('user_id')
-            
-            if user_id:
-                from django.contrib.auth import get_user_model
-                User = get_user_model()
-                user = User.objects.get(id=user_id)
-                user_data = UserSerializer(user).data
-            else:
-                user_data = None
-                
-        except Exception as e:
-            user_data = None
-        
-        # Return new token with user data
-        response_data = {
-            'access_token': new_access_token,
-            'token_type': 'Bearer', 
-            'expires_in': 15 * 60,  # 15 minutes
-        }
-        
-        # Include user data if available
-        if user_data:
-            response_data['user'] = user_data
-        
-        # Include tab_id if provided
-        tab_id = request.data.get('tab_id')
-        if tab_id:
-            response_data['tab_id'] = tab_id
-        
-        return Response(response_data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'], permission_classes=[], authentication_classes=[])
     def refresh_session(self, request):
         """Refresh session token - simpler than JWT refresh."""
         session_token = request.data.get('session_token')
+        refresh_token = request.data.get('refresh_token')  # Also accept refresh_token
         tab_id = request.data.get('tab_id')
         
-        if not session_token:
+        # Try both session_token and refresh_token for compatibility
+        token_to_use = session_token or refresh_token
+        
+        if not token_to_use:
             return Response({
-                'error': 'Session token required'
+                'error': 'Session token or refresh token required',
+                'detail': 'Either session_token or refresh_token must be provided'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            from users.models import UserSession
-            session = UserSession.objects.get(
-                session_token=session_token,
-                is_active=True,
-                expires_at__gt=timezone.now()
-            )
+            # First try as session token
+            try:
+                from users.models import UserSession
+                session = UserSession.objects.get(
+                    session_token=token_to_use,
+                    is_active=True,
+                    expires_at__gt=timezone.now()
+                )
+                
+                # Extend session expiry
+                session.expires_at = timezone.now() + timedelta(hours=24)
+                session.save()
+                
+                return Response({
+                    'success': True,
+                    'message': 'Session refreshed',
+                    'expires_at': session.expires_at.isoformat(),
+                    'tab_id': tab_id
+                })
+                
+            except UserSession.DoesNotExist:
+                # If not found as session token, try as refresh token
+                from users.managers import JWTAuthenticationManager
+                
+                # Get client information
+                ip_address = self.get_client_ip(request)
+                user_agent = self.get_user_agent(request)
+                
+                # Try to refresh using JWT manager
+                success, new_access_token, error_message = JWTAuthenticationManager.refresh_access_token(
+                    token_to_use, ip_address, user_agent
+                )
+                
+                if success:
+                    return Response({
+                        'success': True,
+                        'access_token': new_access_token,
+                        'token_type': 'Bearer',
+                        'expires_in': 900,  # 15 minutes
+                        'tab_id': tab_id
+                    })
+                else:
+                    return Response({
+                        'error': 'Token refresh failed',
+                        'detail': error_message or 'Invalid or expired token'
+                    }, status=status.HTTP_401_UNAUTHORIZED)
             
-            # Extend session expiry
-            session.expires_at = timezone.now() + timedelta(hours=1)
-            session.save()
-            
-            return Response({
-                'success': True,
-                'message': 'Session refreshed',
-                'expires_at': session.expires_at.isoformat(),
-                'tab_id': tab_id
-            })
-            
-        except UserSession.DoesNotExist:
-            return Response({
-                'error': 'Invalid or expired session'
-            }, status=status.HTTP_401_UNAUTHORIZED)
         except Exception as e:
             logger.error(f"Session refresh error: {str(e)}")
             return Response({
-                'error': 'Session refresh failed'
+                'error': 'Session refresh failed',
+                'detail': 'An error occurred while refreshing the session'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
     @action(detail=False, methods=['get'])
@@ -2484,52 +2451,65 @@ class PatientViewSet(viewsets.ModelViewSet):
         
         return actions
     
-    @action(detail=False, methods=['get'], url_path='profile')
-    def get_profile(self, request):
-        """Get patient profile."""
+    @action(detail=False, methods=['get', 'patch'], url_path='profile')
+    def profile(self, request):
+        """Get or update patient profile."""
         user = request.user
         
-        try:
-            from users.models import PatientProfile
-            profile, created = PatientProfile.objects.get_or_create(user=user)
-            
-            from users.serializers import PatientProfileSerializer
-            serializer = PatientProfileSerializer(profile)
-            return Response(serializer.data)
-            
-        except Exception as e:
-            logger.error(f"Failed to get profile for user {user.id}: {str(e)}")
-            return Response(
-                {'detail': 'Failed to load profile'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(detail=False, methods=['patch'], url_path='profile')  
-    def update_profile(self, request):
-        """Update patient profile."""
-        user = request.user
+        if request.method == 'GET':
+            try:
+                from users.models import PatientProfile
+                profile, created = PatientProfile.objects.get_or_create(user=user)
+                
+                from users.serializers import PatientProfileSerializer
+                serializer = PatientProfileSerializer(profile)
+                return Response(serializer.data)
+                
+            except Exception as e:
+                logger.error(f"Failed to get profile for user {user.id}: {str(e)}")
+                return Response(
+                    {'detail': 'Failed to load profile'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
         
-        try:
-            from users.models import PatientProfile
-            profile, created = PatientProfile.objects.get_or_create(user=user)
-            
-            from users.serializers import PatientProfileSerializer
-            serializer = PatientProfileSerializer(profile, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            
-            return Response({
-                'detail': 'Profile updated successfully',
-                'profile': serializer.data
-            })
-            
-        except Exception as e:
-            logger.error(f"Failed to update profile for user {user.id}: {str(e)}")
-            return Response(
-                {'detail': 'Failed to update profile'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-            
+        elif request.method == 'PATCH':
+            try:
+                from users.models import PatientProfile
+                profile, created = PatientProfile.objects.get_or_create(user=user)
+                
+                # Update User model fields first
+                user_fields = ['first_name', 'last_name', 'email', 'phone_number', 'address', 'city', 'state', 'zip_code']
+                user_updated = False
+                
+                for field in user_fields:
+                    if field in request.data:
+                        setattr(user, field, request.data[field])
+                        user_updated = True
+                
+                if user_updated:
+                    user.save()
+                
+                # Update PatientProfile fields
+                from users.serializers import PatientProfileSerializer
+                serializer = PatientProfileSerializer(profile, data=request.data, partial=True)
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+                
+                # Return updated user data (not just profile)
+                from users.serializers import UserSerializer
+                return Response({
+                    'detail': 'Profile updated successfully',
+                    'user': UserSerializer(user).data,
+                    'profile': serializer.data
+                })
+                
+            except Exception as e:
+                logger.error(f"Failed to update profile for user {user.id}: {str(e)}")
+                return Response(
+                    {'detail': 'Failed to update profile'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                
     @action(detail=False, methods=['get'], url_path='dashboard')
     def dashboard(self, request):
         """

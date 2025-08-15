@@ -73,7 +73,6 @@ urlpatterns = [
 
     # Patient specific endpoints
     path('patient/dashboard/', PatientViewSet.as_view({'get': 'dashboard'}), name='patient-dashboard'),
-    path('patient/profile/', PatientViewSet.as_view({'get': 'get_profile', 'patch': 'update_profile'}), name='patient-profile-endpoint'),
     path('patient-profiles/<int:pk>/verify-identity/', PatientProfileViewSet.as_view({'post': 'verify_identity'}), name='verify-patient-identity'),
     path('patient-profiles/<int:pk>/update-consent/', PatientProfileViewSet.as_view({'post': 'update_consent'}), name='update-patient-consent'),
     
