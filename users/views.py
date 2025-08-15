@@ -1952,7 +1952,28 @@ class PatientProfileViewSet(BaseViewSet):
 
 class PatientViewSet(viewsets.ModelViewSet):
     """ViewSet for patient-specific operations."""
-
+    serializer_class = PatientProfileSerializer
+    permission_classes = [IsAuthenticated, IsApprovedUser]
+    
+    def get_queryset(self):
+        """Filter patient profiles based on user role."""
+        if getattr(self, 'swagger_fake_view', False):
+            return User.objects.none()
+        
+        user = self.request.user
+        
+        if user.role == 'patient':
+            return User.objects.filter(id=user.id)
+        elif user.role in ['provider', 'admin'] or user.is_staff:
+            return User.objects.filter(role='patient')
+        elif user.role == 'caregiver' and hasattr(user, 'caregiver_profile'):
+            # Get patients this caregiver is authorized for
+            return User.objects.filter(
+                patient_profile__authorized_caregivers=user
+            )
+        
+        return User.objects.none()
+    
     @action(detail=False, methods=['get'], url_path='dashboard')
     def dashboard(self, request):
         """

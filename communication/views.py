@@ -398,3 +398,81 @@ class NotificationViewSet(viewsets.ModelViewSet):
         """Get count of unread notifications."""
         count = self.get_queryset().filter(read_at__isnull=True).count()
         return Response({'unread_count': count})
+    
+    @action(detail=False, methods=['get', 'post'], url_path='preferences')
+    def preferences(self, request):
+        """Get or update notification preferences for the current user."""
+        user = request.user
+        
+        if request.method == 'GET':
+            # Get existing preferences or return defaults
+            try:
+                from users.models import PatientProfile
+                profile = PatientProfile.objects.get(user=user)
+                
+                preferences = {
+                    'email_appointment_reminders': getattr(profile, 'email_appointment_reminders', True),
+                    'email_medication_reminders': getattr(profile, 'email_medication_reminders', True),
+                    'email_health_records': getattr(profile, 'email_health_records', True),
+                    'email_research_updates': getattr(profile, 'email_research_updates', False),
+                    'sms_appointment_reminders': getattr(profile, 'sms_appointment_reminders', False),
+                    'sms_medication_reminders': getattr(profile, 'sms_medication_reminders', True),
+                    'sms_emergency_alerts': getattr(profile, 'sms_emergency_alerts', True),
+                    'in_app_notifications': getattr(profile, 'in_app_notifications', True),
+                    'smartwatch_notifications': getattr(profile, 'smartwatch_notifications', False),
+                    'push_notifications': getattr(profile, 'push_notifications', True),
+                }
+                
+                return Response(preferences)
+                
+            except Exception as e:
+                logger.warning(f"Could not load preferences for user {user.id}: {str(e)}")
+                # Return default preferences
+                return Response({
+                    'email_appointment_reminders': True,
+                    'email_medication_reminders': True,
+                    'email_health_records': True,
+                    'email_research_updates': False,
+                    'sms_appointment_reminders': False,
+                    'sms_medication_reminders': True,
+                    'sms_emergency_alerts': True,
+                    'in_app_notifications': True,
+                    'smartwatch_notifications': False,
+                    'push_notifications': True,
+                })
+        
+        elif request.method == 'POST':
+            # Update preferences
+            try:
+                from users.models import PatientProfile
+                profile, created = PatientProfile.objects.get_or_create(user=user)
+                
+                # Update preferences fields
+                valid_fields = [
+                    'email_appointment_reminders', 'email_medication_reminders', 
+                    'email_health_records', 'email_research_updates',
+                    'sms_appointment_reminders', 'sms_medication_reminders', 
+                    'sms_emergency_alerts', 'in_app_notifications',
+                    'smartwatch_notifications', 'push_notifications'
+                ]
+                
+                updated_fields = []
+                for field in valid_fields:
+                    if field in request.data:
+                        setattr(profile, field, request.data[field])
+                        updated_fields.append(field)
+                
+                if updated_fields:
+                    profile.save(update_fields=updated_fields)
+                
+                return Response({
+                    'detail': 'Notification preferences updated successfully',
+                    'updated_fields': updated_fields
+                })
+                
+            except Exception as e:
+                logger.error(f"Failed to update preferences for user {user.id}: {str(e)}")
+                return Response(
+                    {'detail': 'Failed to update notification preferences'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
