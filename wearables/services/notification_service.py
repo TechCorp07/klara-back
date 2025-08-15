@@ -1,4 +1,6 @@
 # wearables/services/notification_service.py
+import httpx
+import jwt
 import json
 import logging
 from datetime import datetime, timedelta
@@ -137,8 +139,15 @@ class WearableNotificationService:
     def _send_apns_notification(cls, integration: WearableIntegration, data: Dict[str, Any]) -> bool:
         """Send notification via Apple Push Notification Service."""
         try:
-            # This would integrate with your APNs setup
-            apns_payload = {
+            if not hasattr(settings, 'APNS_KEY_ID') or not settings.APNS_KEY_ID:
+                logger.error("APNs credentials not configured")
+                return False
+            
+            # Generate JWT token for APNs
+            token = cls._generate_apns_token()
+            
+            # APNs payload
+            payload = {
                 'aps': {
                     'alert': {
                         'title': data['title'],
@@ -147,7 +156,8 @@ class WearableNotificationService:
                     'sound': data.get('sound', 'default'),
                     'badge': data.get('badge', 1),
                     'category': data['category'],
-                    'thread-id': 'medication-reminders'
+                    'thread-id': 'medication-reminders',
+                    'content-available': 1
                 },
                 'custom_data': {
                     'medication_id': data.get('medication_id'),
@@ -156,18 +166,30 @@ class WearableNotificationService:
                 }
             }
             
-            # Send to device token (stored in integration.platform_user_id for APNs)
+            headers = {
+                'authorization': f'bearer {token}',
+                'apns-topic': settings.APNS_BUNDLE_ID,
+                'apns-priority': '10',
+                'apns-push-type': 'alert'
+            }
+            
+            # Send to APNs
             device_token = integration.platform_user_id
+            url = f"https://api.push.apple.com/3/device/{device_token}"
             
-            # Use your APNs service here
-            # For now, simulate success
-            logger.info(f"Would send APNs notification to {device_token}: {apns_payload}")
-            return True
+            response = httpx.post(url, json=payload, headers=headers, timeout=10)
             
+            if response.status_code == 200:
+                logger.info(f"APNs notification sent successfully to {device_token}")
+                return True
+            else:
+                logger.error(f"APNs notification failed: {response.status_code} - {response.text}")
+                return False
+                
         except Exception as e:
-            logger.error(f"APNs notification failed: {str(e)}")
+            logger.error(f"APNs notification error: {str(e)}")
             return False
-    
+        
     @classmethod
     def _send_samsung_health_notification(cls, integration: WearableIntegration, data: Dict[str, Any]) -> bool:
         """Send notification via Samsung Health SDK."""
@@ -608,6 +630,21 @@ class WearableNotificationService:
         except Exception as e:
             logger.error(f"Generic appointment reminder failed: {str(e)}")
             return False
+
+    @classmethod
+    def _generate_apns_token(cls):
+        """Generate JWT token for APNs authentication."""
+        now = datetime.utcnow()
+        payload = {
+            'iss': settings.APNS_TEAM_ID,
+            'iat': now,
+            'exp': now + timedelta(hours=1)
+        }
+        
+        with open(settings.APNS_PRIVATE_KEY_PATH, 'r') as f:
+            private_key = f.read()
+        
+        return jwt.encode(payload, private_key, algorithm='ES256', headers={'kid': settings.APNS_KEY_ID})
 
 # Make the function available at module level for medication service
 def send_watch_notification(device_id: str, title: str, message: str, **kwargs) -> bool:

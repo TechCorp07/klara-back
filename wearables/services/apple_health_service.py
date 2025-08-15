@@ -1,4 +1,5 @@
 import logging
+from django.conf import settings
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -228,4 +229,23 @@ def generate_mobile_config():
             'activity',
             'distance'
         ]
+    }
+
+def setup_background_delivery(user, integration):
+    """Configure background delivery for real-time health data."""
+    return {
+        'background_delivery_config': {
+            'enabled_types': [
+                'HKQuantityTypeIdentifierHeartRate',
+                'HKQuantityTypeIdentifierStepCount',
+                'HKQuantityTypeIdentifierBloodPressureSystolic',
+                'HKQuantityTypeIdentifierBloodPressureDiastolic',
+                'HKQuantityTypeIdentifierBloodGlucose',
+                'HKQuantityTypeIdentifierBodyTemperature',
+                'HKQuantityTypeIdentifierOxygenSaturation'
+            ],
+            'frequency': 'immediate',
+            'webhook_url': f"{settings.BASE_URL}/api/wearables/mobile/apple_health/sync/",
+            'auth_token': integration.access_token
+        }
     }

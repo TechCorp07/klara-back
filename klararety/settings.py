@@ -554,6 +554,13 @@ WITHINGS_CLIENT_ID = env('WITHINGS_CLIENT_ID', default='')
 WITHINGS_CLIENT_SECRET = env('WITHINGS_CLIENT_SECRET', default='')
 WITHINGS_CALLBACK_URL = env('WITHINGS_REDIRECT_URI', default='')
 
+# Apple Push Notifications
+APNS_TEAM_ID = env('APNS_TEAM_ID', default='')
+APNS_KEY_ID = env('APNS_KEY_ID', default='')
+APNS_BUNDLE_ID = env('APNS_BUNDLE_ID', default='')
+APNS_PRIVATE_KEY_PATH = env('APNS_PRIVATE_KEY_PATH', default='')
+APNS_USE_SANDBOX = env.bool('APNS_USE_SANDBOX', default=True)
+
 # Email Configuration
 EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = env('EMAIL_HOST', default='localhost')
