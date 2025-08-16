@@ -211,7 +211,6 @@ class UserViewSet(BaseViewSet):
                 
             except UserSession.DoesNotExist:
                 # If not found as session token, try as refresh token
-                from users.managers import JWTAuthenticationManager
                 
                 # Get client information
                 ip_address = self.get_client_ip(request)
@@ -2485,7 +2484,7 @@ class PatientViewSet(viewsets.ModelViewSet):
                     'first_name': 'first_name',
                     'last_name': 'last_name', 
                     'email': 'email',
-                    'phone': 'phone_number',  # Map frontend 'phone' to backend 'phone_number'
+                    'phone': 'phone_number',
                     'date_of_birth': 'date_of_birth',
                     'address': 'address',
                     'city': 'city',
@@ -2549,7 +2548,7 @@ class PatientViewSet(viewsets.ModelViewSet):
                     {'detail': f'Failed to update profile: {str(e)}'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-    
+
     @action(detail=False, methods=['get'], url_path='dashboard')
     def dashboard(self, request):
         """

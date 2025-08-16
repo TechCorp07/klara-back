@@ -73,6 +73,14 @@ class User(AbstractUser):
         blank=True,
         help_text="User profile image" )
     
+    address = models.TextField(blank=True, help_text="Street address")
+    city = models.CharField(max_length=100, blank=True, help_text="City")
+    state = models.CharField(max_length=100, blank=True, help_text="State/Province") 
+    zip_code = models.CharField(max_length=20, blank=True, help_text="ZIP/Postal code")
+    emergency_contact_name = models.CharField(max_length=255, blank=True)
+    emergency_contact_phone = models.CharField(max_length=20, blank=True)
+    emergency_contact_relationship = models.CharField(max_length=50, blank=True)
+    
     # Security fields
     two_factor_enabled = models.BooleanField(default=False)
     login_attempts = models.IntegerField(default=0)
