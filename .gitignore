@@ -14,6 +14,7 @@ app.zip
 __pycache__
 .coverage
 cover/
+media/
 .anima/
 logs/
 docs/
