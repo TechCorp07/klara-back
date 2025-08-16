@@ -2461,9 +2461,12 @@ class PatientViewSet(viewsets.ModelViewSet):
                 from users.models import PatientProfile
                 profile, created = PatientProfile.objects.get_or_create(user=user)
                 
-                from users.serializers import PatientProfileSerializer
-                serializer = PatientProfileSerializer(profile)
-                return Response(serializer.data)
+                # Return both user and profile data
+                from users.serializers import PatientProfileSerializer, UserSerializer
+                return Response({
+                    'user': UserSerializer(user).data,
+                    'profile': PatientProfileSerializer(profile).data
+                })
                 
             except Exception as e:
                 logger.error(f"Failed to get profile for user {user.id}: {str(e)}")
@@ -2477,39 +2480,76 @@ class PatientViewSet(viewsets.ModelViewSet):
                 from users.models import PatientProfile
                 profile, created = PatientProfile.objects.get_or_create(user=user)
                 
-                # Update User model fields first
-                user_fields = ['first_name', 'last_name', 'email', 'phone_number', 'address', 'city', 'state', 'zip_code']
-                user_updated = False
+                # ✅ MAP FRONTEND FIELDS TO BACKEND FIELDS
+                field_mapping = {
+                    'first_name': 'first_name',
+                    'last_name': 'last_name', 
+                    'email': 'email',
+                    'phone': 'phone_number',  # Map frontend 'phone' to backend 'phone_number'
+                    'date_of_birth': 'date_of_birth',
+                    'address': 'address',
+                    'city': 'city',
+                    'state': 'state',
+                    'zip_code': 'zip_code',
+                }
                 
-                for field in user_fields:
-                    if field in request.data:
-                        setattr(user, field, request.data[field])
-                        user_updated = True
+                # Update User model fields
+                user_updated = False
+                for frontend_field, backend_field in field_mapping.items():
+                    if frontend_field in request.data:
+                        old_value = getattr(user, backend_field, None)
+                        new_value = request.data[frontend_field]
+                        if old_value != new_value:
+                            setattr(user, backend_field, new_value)
+                            user_updated = True
+                            logger.info(f"Updated user.{backend_field}: '{old_value}' -> '{new_value}'")
                 
                 if user_updated:
                     user.save()
+                    logger.info(f"Saved user {user.id} profile updates")
                 
-                # Update PatientProfile fields
-                from users.serializers import PatientProfileSerializer
-                serializer = PatientProfileSerializer(profile, data=request.data, partial=True)
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
+                # Update PatientProfile fields (emergency contacts, etc.)
+                profile_fields = {
+                    'emergency_contact_name': 'emergency_contact_name',
+                    'emergency_contact_phone': 'emergency_contact_phone', 
+                    'emergency_contact_relationship': 'emergency_contact_relationship',
+                }
                 
-                # Return updated user data (not just profile)
-                from users.serializers import UserSerializer
+                profile_updated = False
+                for frontend_field, backend_field in profile_fields.items():
+                    if frontend_field in request.data:
+                        old_value = getattr(profile, backend_field, None)
+                        new_value = request.data[frontend_field]
+                        if old_value != new_value:
+                            setattr(profile, backend_field, new_value)
+                            profile_updated = True
+                            logger.info(f"Updated profile.{backend_field}: '{old_value}' -> '{new_value}'")
+                
+                if profile_updated:
+                    profile.save()
+                    logger.info(f"Saved profile {profile.id} updates")
+                
+                # Return updated data
+                from users.serializers import PatientProfileSerializer, UserSerializer
                 return Response({
                     'detail': 'Profile updated successfully',
                     'user': UserSerializer(user).data,
-                    'profile': serializer.data
+                    'profile': PatientProfileSerializer(profile).data,
+                    'updated_fields': {
+                        'user_updated': user_updated,
+                        'profile_updated': profile_updated
+                    }
                 })
                 
             except Exception as e:
                 logger.error(f"Failed to update profile for user {user.id}: {str(e)}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 return Response(
-                    {'detail': 'Failed to update profile'},
+                    {'detail': f'Failed to update profile: {str(e)}'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-                
+    
     @action(detail=False, methods=['get'], url_path='dashboard')
     def dashboard(self, request):
         """
@@ -2949,7 +2989,7 @@ class PatientViewSet(viewsets.ModelViewSet):
                 {'detail': 'Failed to send message'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
- 
+    
     @action(detail=False, methods=['get'], url_path='family-history')
     def family_history(self, request):
         """Get patient's family medical history."""
