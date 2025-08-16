@@ -2484,7 +2484,7 @@ class PatientViewSet(viewsets.ModelViewSet):
                     'first_name': 'first_name',
                     'last_name': 'last_name', 
                     'email': 'email',
-                    'phone': 'phone_number',
+                    'phone_number': 'phone_number',
                     'date_of_birth': 'date_of_birth',
                     'address': 'address',
                     'city': 'city',
