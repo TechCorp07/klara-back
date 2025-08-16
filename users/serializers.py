@@ -69,7 +69,9 @@ class UserSerializer(serializers.ModelSerializer):
             'pharmaceutical_tenants', 'jwt_secret_version', 'last_token_refresh',
             'password_last_changed', 'failed_login_attempts', 'account_locked_until',
             'research_participant_id', 'research_enrollment_date',
-            'active_sessions_count',
+            'active_sessions_count', 'address', 'city', 'state', 'zip_code',
+            'emergency_contact_name', 'emergency_contact_phone', 
+            'emergency_contact_relationship',
         )
         read_only_fields = (
             'id', 'username', 'date_joined', 'role_display',

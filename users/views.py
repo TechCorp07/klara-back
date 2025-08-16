@@ -2479,7 +2479,6 @@ class PatientViewSet(viewsets.ModelViewSet):
                 from users.models import PatientProfile
                 profile, created = PatientProfile.objects.get_or_create(user=user)
                 
-                # ✅ MAP FRONTEND FIELDS TO BACKEND FIELDS
                 field_mapping = {
                     'first_name': 'first_name',
                     'last_name': 'last_name', 
@@ -2490,6 +2489,9 @@ class PatientViewSet(viewsets.ModelViewSet):
                     'city': 'city',
                     'state': 'state',
                     'zip_code': 'zip_code',
+                    'emergency_contact_name': 'emergency_contact_name',
+                    'emergency_contact_phone': 'emergency_contact_phone', 
+                    'emergency_contact_relationship': 'emergency_contact_relationship',
                 }
                 
                 # Update User model fields
@@ -2507,27 +2509,6 @@ class PatientViewSet(viewsets.ModelViewSet):
                     user.save()
                     logger.info(f"Saved user {user.id} profile updates")
                 
-                # Update PatientProfile fields (emergency contacts, etc.)
-                profile_fields = {
-                    'emergency_contact_name': 'emergency_contact_name',
-                    'emergency_contact_phone': 'emergency_contact_phone', 
-                    'emergency_contact_relationship': 'emergency_contact_relationship',
-                }
-                
-                profile_updated = False
-                for frontend_field, backend_field in profile_fields.items():
-                    if frontend_field in request.data:
-                        old_value = getattr(profile, backend_field, None)
-                        new_value = request.data[frontend_field]
-                        if old_value != new_value:
-                            setattr(profile, backend_field, new_value)
-                            profile_updated = True
-                            logger.info(f"Updated profile.{backend_field}: '{old_value}' -> '{new_value}'")
-                
-                if profile_updated:
-                    profile.save()
-                    logger.info(f"Saved profile {profile.id} updates")
-                
                 # Return updated data
                 from users.serializers import PatientProfileSerializer, UserSerializer
                 return Response({
@@ -2536,7 +2517,7 @@ class PatientViewSet(viewsets.ModelViewSet):
                     'profile': PatientProfileSerializer(profile).data,
                     'updated_fields': {
                         'user_updated': user_updated,
-                        'profile_updated': profile_updated
+                        'profile_updated': False
                     }
                 })
                 

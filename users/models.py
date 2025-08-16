@@ -316,11 +316,6 @@ class PatientProfile(models.Model):
     blood_type = EncryptedCharField(max_length=10, blank=True)
     allergies = EncryptedTextField(blank=True)
     
-    # Emergency contact
-    emergency_contact_name = EncryptedCharField(max_length=255, blank=True)
-    emergency_contact_phone = EncryptedCharField(max_length=20, blank=True)
-    emergency_contact_relationship = models.CharField(max_length=50, blank=True)
-    
     # Primary condition
     primary_condition = EncryptedCharField(max_length=255, blank=True)
     condition_diagnosis_date = EncryptedDateField(null=True, blank=True)
