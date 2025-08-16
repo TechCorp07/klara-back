@@ -75,6 +75,8 @@ urlpatterns = [
     path('patient/dashboard/', PatientViewSet.as_view({'get': 'dashboard'}), name='patient-dashboard'),
     path('patient-profiles/<int:pk>/verify-identity/', PatientProfileViewSet.as_view({'post': 'verify_identity'}), name='verify-patient-identity'),
     path('patient-profiles/<int:pk>/update-consent/', PatientProfileViewSet.as_view({'post': 'update_consent'}), name='update-patient-consent'),
+    path('patient/upload-photo/', PatientViewSet.as_view({'post': 'upload_photo'}), name='patient-upload-photo'),
+    path('patient/delete-photo/', PatientViewSet.as_view({'delete': 'delete_photo'}), name='patient-delete-photo'),
     
     # Medication endpoints
     path('patient/medications/', PatientViewSet.as_view({'get': 'medications_list'}), name='patient-medications'),

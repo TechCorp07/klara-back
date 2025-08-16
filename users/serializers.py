@@ -68,7 +68,7 @@ class UserSerializer(serializers.ModelSerializer):
             'hipaa_privacy_acknowledged', 'primary_pharmaceutical_tenant',
             'pharmaceutical_tenants', 'jwt_secret_version', 'last_token_refresh',
             'password_last_changed', 'failed_login_attempts', 'account_locked_until',
-            'research_participant_id', 'research_enrollment_date',
+            'research_participant_id', 'research_enrollment_date', 'profile_image',
             'active_sessions_count', 'address', 'city', 'state', 'zip_code',
             'emergency_contact_name', 'emergency_contact_phone', 
             'emergency_contact_relationship',

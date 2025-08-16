@@ -2916,6 +2916,88 @@ class PatientViewSet(viewsets.ModelViewSet):
                 "community_groups": []
             })
     
+    @action(detail=False, methods=['post'], url_path='upload-photo')
+    def upload_photo(self, request):
+        """Upload profile photo for patient."""
+        user = request.user
+        
+        try:
+            if 'profile_photo' not in request.FILES:
+                return Response(
+                    {'detail': 'No photo file provided'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            photo_file = request.FILES['profile_photo']
+            
+            # Validate file type
+            if not photo_file.content_type.startswith('image/'):
+                return Response(
+                    {'detail': 'File must be an image'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validate file size (5MB max)
+            if photo_file.size > 5 * 1024 * 1024:
+                return Response(
+                    {'detail': 'Image file size must be less than 5MB'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Delete old profile image if it exists
+            if user.profile_image:
+                try:
+                    user.profile_image.delete(save=False)
+                except Exception as e:
+                    logger.warning(f"Failed to delete old profile image: {e}")
+            
+            # Save new profile image
+            user.profile_image = photo_file
+            user.save(update_fields=['profile_image'])
+            
+            logger.info(f"Profile photo uploaded for user {user.id}")
+            
+            return Response({
+                'detail': 'Profile photo uploaded successfully',
+                'profile_photo_url': user.profile_image.url if user.profile_image else None
+            })
+            
+        except Exception as e:
+            logger.error(f"Failed to upload profile photo for user {user.id}: {str(e)}")
+            return Response(
+                {'detail': 'Failed to upload photo'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['delete'], url_path='delete-photo')
+    def delete_photo(self, request):
+        """Delete profile photo for patient."""
+        user = request.user
+        
+        try:
+            if user.profile_image:
+                user.profile_image.delete(save=False)
+                user.profile_image = None
+                user.save(update_fields=['profile_image'])
+                
+                logger.info(f"Profile photo deleted for user {user.id}")
+                
+                return Response({
+                    'detail': 'Profile photo deleted successfully'
+                })
+            else:
+                return Response(
+                    {'detail': 'No profile photo to delete'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except Exception as e:
+            logger.error(f"Failed to delete profile photo for user {user.id}: {str(e)}")
+            return Response(
+                {'detail': 'Failed to delete photo'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
     @action(detail=False, methods=['post'])
     def send_message_to_provider(self, request):
         """Send message to a provider."""
