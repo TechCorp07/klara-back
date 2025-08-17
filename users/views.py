@@ -106,6 +106,7 @@ class UserViewSet(BaseViewSet):
             'disable_2fa': [IsAuthenticated, IsApprovedUser],
             'request_email_verification': [IsAuthenticated],
             'permissions': [IsAuthenticated, IsApprovedUser],
+            'change_password': [IsAuthenticated, IsApprovedUser],
             
             # Session Permissions
             'list_user_sessions': [IsAuthenticated, IsApprovedUser],
@@ -1029,7 +1030,91 @@ class UserViewSet(BaseViewSet):
                 'enabled': False,
                 'setup_required': True
             })
+    
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated, IsApprovedUser])
+    def change_password(self, request):
+        """
+        Change password for authenticated user.
+        Requires current password verification for security.
+        """
+        current_password = request.data.get('current_password')
+        new_password = request.data.get('new_password')
+        
+        if not current_password or not new_password:
+            return Response({
+                'error': 'Both current_password and new_password are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = request.user
+        
+        # Verify current password
+        if not user.check_password(current_password):
+            # Log failed attempt for security monitoring
+            self.log_security_event(
+                user=user,
+                event_type="PASSWORD_CHANGE_FAILED",
+                description="Failed password change attempt - incorrect current password",
+                request=request
+            )
+            return Response({
+                'error': 'Current password is incorrect'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate new password (you can add your password policy here)
+        if len(new_password) < 12:  # Your config shows 12 char minimum
+            return Response({
+                'error': 'New password must be at least 12 characters long'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if new password is different from current
+        if user.check_password(new_password):
+            return Response({
+                'error': 'New password must be different from current password'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Set new password
+            user.set_password(new_password)
+            user.password_last_changed = timezone.now()
             
+            # Increment JWT version to invalidate existing tokens (optional security measure)
+            user.jwt_secret_version = (user.jwt_secret_version or 1) + 1
+            user.save(update_fields=['password', 'password_last_changed', 'jwt_secret_version'])
+            
+            # Log successful password change
+            self.log_security_event(
+                user=user,
+                event_type="PASSWORD_CHANGE_SUCCESS",
+                description="User successfully changed password",
+                request=request
+            )
+            
+            # Optionally terminate other sessions for security
+            current_session_id = getattr(request, 'session_id', None)
+            if current_session_id:
+                terminated_count = SessionManager.terminate_all_user_sessions(
+                    user=user,
+                    reason="Password changed - security measure",
+                    exclude_session_id=current_session_id
+                )
+                
+                return Response({
+                    'message': 'Password changed successfully',
+                    'detail': f'Password updated. {terminated_count} other sessions terminated for security.',
+                    'terminated_sessions': terminated_count
+                })
+            else:
+                return Response({
+                    'message': 'Password changed successfully',
+                    'detail': 'Your password has been updated successfully.'
+                })
+                
+        except Exception as e:
+            logger.error(f"Error changing password for user {user.id}: {str(e)}")
+            return Response({
+                'error': 'Failed to change password. Please try again.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    
     @action(detail=False, methods=['post'])
     def forgot_password(self, request):
         """Request password reset."""

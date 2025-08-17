@@ -45,6 +45,7 @@ urlpatterns = [
     path('auth/verify-phonenumber/', UserViewSet.as_view({'post': 'verify_phone'}), name='verify-phone'),
     path('auth/forgot-password/', UserViewSet.as_view({'post': 'forgot_password'}), name='forgot-password'),
     path('auth/reset-password/', UserViewSet.as_view({'post': 'reset_password'}), name='reset-password'),
+    path('auth/change-password/', UserViewSet.as_view({'post': 'change_password'}), name='change-password'),
     path('auth/setup-2fa/', UserViewSet.as_view({'get': 'get_2fa_status', 'post': 'setup_2fa'}), name='setup-2fa'),
     path('auth/confirm-2fa/', UserViewSet.as_view({'post': 'confirm_2fa'}), name='confirm-2fa'),
     path('auth/verify-2fa/', UserViewSet.as_view({'post': 'verify_2fa'}), name='verify-2fa'),
