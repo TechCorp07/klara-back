@@ -107,6 +107,13 @@ class UserViewSet(BaseViewSet):
             'request_email_verification': [IsAuthenticated],
             'permissions': [IsAuthenticated, IsApprovedUser],
             
+            # Session Permissions
+            'list_user_sessions': [IsAuthenticated, IsApprovedUser],
+            'terminate_session': [IsAuthenticated, IsApprovedUser],
+            'terminate_all_sessions': [IsAuthenticated, IsApprovedUser],
+            'session_health': [IsAuthenticated, IsApprovedUser],
+            'refresh_session': [AllowAny],
+            
             # Admin only endpoints
             'approve_user': [IsAuthenticated, permissions.IsAdminUser],
             'pending_approvals': [IsAuthenticated, permissions.IsAdminUser],
@@ -1188,7 +1195,7 @@ class UserViewSet(BaseViewSet):
             'total_requested': len(user_ids)
         })
         
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated, IsApprovedUser])
     def list_user_sessions(self, request):
         """Get user's active sessions."""
         if not request.user.is_authenticated:
@@ -2954,7 +2961,7 @@ class PatientViewSet(viewsets.ModelViewSet):
             # Save new profile image
             user.profile_image = photo_file
             user.save(update_fields=['profile_image'])
-            
+
             logger.info(f"Profile photo uploaded for user {user.id}")
             
             return Response({
