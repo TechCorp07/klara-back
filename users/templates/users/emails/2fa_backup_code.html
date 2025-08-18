@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{{ platform_name }} - Verification Code</title>
+</head>
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #f8f9fa; padding: 30px; border-radius: 8px;">
+        <h2 style="color: #333; margin-bottom: 20px;">{{ platform_name }} - Account Verification</h2>
+        
+        <p>Hello {{ user.get_full_name|default:user.email }},</p>
+        
+        <p>You requested to verify your account using email backup. Your verification code is:</p>
+        
+        <div style="background-color: #fff; border: 2px solid #007bff; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
+            <h1 style="font-size: 32px; letter-spacing: 8px; margin: 0; color: #007bff; font-family: monospace;">{{ backup_code }}</h1>
+        </div>
+        
+        <p><strong>Important:</strong></p>
+        <ul>
+            <li>This code will expire in {{ expires_minutes }} minutes</li>
+            <li>Only use this code if you've lost access to your authenticator app</li>
+            <li>Never share this code with anyone</li>
+        </ul>
+        
+        <p>If you didn't request this code, please contact our support team immediately at <a href="mailto:support@{{ platform_name|lower }}.com">support@{{ platform_name|lower }}.com</a></p>
+        
+        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+        
+        <p style="color: #666; font-size: 14px;">
+            Best regards,<br>
+            {{ platform_name }} Security Team
+        </p>
+    </div>
+</body>
+</html>
