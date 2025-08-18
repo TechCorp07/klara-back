@@ -32,9 +32,9 @@ from healthcare.services.genetic_analysis_service import GeneticAnalysisService
 
 from .utils import EmailService, SecurityLogger
 from .models import (
-    AuditTrail, EmergencyAccess, ConsentRecord, HIPAADocument, PharmaceuticalTenant, RefreshToken, ResearchConsent, TwoFactorDevice, 
-    PatientProfile, ProviderProfile, PharmcoProfile, CaregiverProfile, 
-    ResearcherProfile, ComplianceProfile, CaregiverRequest, UserSession
+    AuditTrail, EmergencyAccess, ConsentRecord, HIPAADocument, PharmaceuticalTenant, ResearchConsent,
+    PatientProfile, ProviderProfile, PharmcoProfile, CaregiverProfile, TwoFactorDevice,
+    ResearcherProfile, ComplianceProfile, CaregiverRequest, UserSession, RefreshToken
 )
 from .serializers import (
     AuditTrailSerializer, PharmaceuticalTenantSerializer, ResearchConsentSerializer, UserSerializer, LoginSerializer, TwoFactorAuthSerializer,
@@ -877,6 +877,70 @@ class UserViewSet(BaseViewSet):
         })
 
     @action(detail=False, methods=['post'])
+    def setup_2fa(self, request):
+        """Setup 2FA for authenticated user."""
+        user = request.user
+        
+        try:
+            # Check if user already has 2FA enabled
+            if user.two_factor_enabled:
+                return Response({
+                    'detail': '2FA is already enabled'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if there's an existing unconfirmed device
+            try:
+                device = TwoFactorDevice.objects.get(user=user, confirmed=False)
+                device.delete()  # Remove old unconfirmed device
+            except TwoFactorDevice.DoesNotExist:
+                pass
+            
+            # Generate new secret
+            import pyotp
+            secret = pyotp.random_base32()
+            
+            # Create new device
+            device = TwoFactorDevice.objects.create(
+                user=user,
+                secret_key=secret,
+                confirmed=False
+            )
+            
+            # Generate QR code
+            totp = pyotp.TOTP(secret)
+            provisioning_uri = totp.provisioning_uri(
+                user.email,
+                issuer_name="Klararety Healthcare"
+            )
+            
+            # Generate QR code image
+            import qrcode
+            import io
+            import base64
+            
+            qr = qrcode.QRCode(version=1, box_size=10, border=5)
+            qr.add_data(provisioning_uri)
+            qr.make(fit=True)
+            
+            img = qr.make_image(fill_color="black", back_color="white")
+            buffer = io.BytesIO()
+            img.save(buffer, format='PNG')
+            img_str = base64.b64encode(buffer.getvalue()).decode()
+            
+            return Response({
+                'secret_key': secret,
+                'qr_code': f"data:image/png;base64,{img_str}",
+                'manual_entry_key': secret,
+                'detail': 'Scan the QR code with your authenticator app'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error setting up 2FA for user {user.id}: {str(e)}")
+            return Response({
+                'detail': 'Failed to setup 2FA'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
     def confirm_2fa(self, request):
         """Confirm 2FA setup."""
         serializer = TwoFactorSetupSerializer(data=request.data)
@@ -997,7 +1061,7 @@ class UserViewSet(BaseViewSet):
             
             # Generate session token
             session_token = SessionManager.create_session_token(session, duration_hours=1)
-            
+
         self.log_security_event(
             user=user,
             event_type="2FA_SUCCESS",
@@ -1030,19 +1094,27 @@ class UserViewSet(BaseViewSet):
         user = request.user
         
         try:
-            from users.models import TwoFactorDevice
             device = TwoFactorDevice.objects.get(user=user, confirmed=True)
             
             return Response({
                 'enabled': True,
-                'backup_codes_remaining': device.backup_codes.count() if hasattr(device, 'backup_codes') else 0,
-                'last_used': device.last_used_at.isoformat() if device.last_used_at else None
+                'backup_codes_remaining': 0,
+                'last_used': device.last_used_at.isoformat() if device.last_used_at else None,
+                'setup_complete': True,
+                'device_confirmed': device.confirmed,
             })
         except TwoFactorDevice.DoesNotExist:
             return Response({
                 'enabled': False,
-                'setup_required': True
+                'setup_required': True,
+                'backup_codes_remaining': 0,
+                'last_used': None,
             })
+        except Exception as e:
+            logger.error(f"Error getting 2FA status for user {user.id}: {str(e)}")
+            return Response({
+                'detail': 'Failed to retrieve 2FA status'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'])
     def request_2fa_email_backup(self, request):
