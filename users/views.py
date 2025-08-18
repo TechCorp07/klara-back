@@ -994,7 +994,10 @@ class UserViewSet(BaseViewSet):
             refresh_token = JWTAuthenticationManager.create_refresh_token(
                 user, session, self.get_client_ip(request)
             )
-        
+            
+            # Generate session token
+            session_token = SessionManager.create_session_token(session, duration_hours=1)
+            
         self.log_security_event(
             user=user,
             event_type="2FA_SUCCESS",
@@ -1004,7 +1007,9 @@ class UserViewSet(BaseViewSet):
         
         return Response({
             'access_token': access_token,
-            'refresh_token': refresh_token._raw_token,
+            'token': access_token,
+            'refresh_token': refresh_token.token if hasattr(refresh_token, 'token') else str(refresh_token),
+            'session_token': session_token,
             'token_type': 'Bearer',
             'expires_in': JWTAuthenticationManager.ACCESS_TOKEN_LIFETIME.total_seconds(),
             'user': UserSerializer(user).data,
