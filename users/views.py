@@ -101,6 +101,7 @@ class UserViewSet(BaseViewSet):
             'update': [IsAuthenticated, IsAdminOrSelfOnly, IsApprovedUser],
             'partial_update': [IsAuthenticated, IsAdminOrSelfOnly, IsApprovedUser],
             'me': [IsAuthenticated, IsApprovedUser],
+            'get_2fa_status': [IsAuthenticated, IsApprovedUser],
             'setup_2fa': [IsAuthenticated, IsApprovedUser],
             'confirm_2fa': [IsAuthenticated, IsApprovedUser],
             'disable_2fa': [IsAuthenticated, IsApprovedUser],
@@ -361,6 +362,45 @@ class UserViewSet(BaseViewSet):
             user.failed_login_attempts = 0
             user.save(update_fields=['failed_login_attempts'])
         
+        if user.two_factor_enabled:
+            # Check if user has a confirmed 2FA device
+            try:
+                device = TwoFactorDevice.objects.get(user=user, confirmed=True)
+                
+                # Log 2FA challenge initiated
+                self.log_security_event(
+                    user=user,
+                    event_type="2FA_CHALLENGE_INITIATED",
+                    description="2FA verification required for login",
+                    request=request
+                )
+                
+                # Return 2FA challenge response instead of full login
+                return Response({
+                    'requires_2fa': True,
+                    'user': {
+                        'id': user.id,
+                        'email': user.email,
+                        'first_name': user.first_name,
+                        'last_name': user.last_name,
+                    },
+                    'message': 'Two-factor authentication required',
+                    'detail': 'Please enter the verification code from your authenticator app'
+                })
+                
+            except TwoFactorDevice.DoesNotExist:
+                # User has 2FA enabled but no device - this shouldn't happen
+                # Disable 2FA and proceed with normal login
+                user.two_factor_enabled = False
+                user.save(update_fields=['two_factor_enabled'])
+                
+                self.log_security_event(
+                    user=user,
+                    event_type="2FA_DEVICE_MISSING",
+                    description="2FA enabled but no device found - disabled 2FA",
+                    request=request
+                )
+                
         # Create session atomically - this is the key to eliminating race conditions
         with transaction.atomic():
             # Create distributed session
