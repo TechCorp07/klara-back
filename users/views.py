@@ -1077,9 +1077,7 @@ class UserViewSet(BaseViewSet):
             user.set_password(new_password)
             user.password_last_changed = timezone.now()
             
-            # Increment JWT version to invalidate existing tokens (optional security measure)
-            user.jwt_secret_version = (user.jwt_secret_version or 1) + 1
-            user.save(update_fields=['password', 'password_last_changed', 'jwt_secret_version'])
+            user.save(update_fields=['password', 'password_last_changed'])
             
             # Log successful password change
             self.log_security_event(

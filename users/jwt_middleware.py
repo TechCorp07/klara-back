@@ -189,13 +189,17 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
                 'pharmaceutical_tenants'
             ).get(id=user_id)
             
+            # Skip JWT version check for session tokens
+            if payload.get('session_id') and not payload.get('jti'):
+                return user
+            
             # Verify JWT version matches to ensure token hasn't been invalidated
             if payload.get('jwt_version', 1) != user.jwt_secret_version:
                 logger.warning(f"JWT version mismatch for user {user.email}")
                 return None
             
             return user
-            
+    
         except User.DoesNotExist:
             return None
         except Exception as e:
