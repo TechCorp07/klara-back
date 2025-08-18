@@ -1013,43 +1013,7 @@ class UserViewSet(BaseViewSet):
                 'expires_at': session.expires_at.isoformat(),
             }
         })
-
-    @action(detail=False, methods=['post'])
-    def setup_2fa(self, request):
-        """Setup 2FA for authenticated user."""
-        user = request.user
-        
-        # Generate or get existing device
-        device, created = TwoFactorDevice.objects.get_or_create(
-            user=user,
-            defaults={'secret_key': pyotp.random_base32()}
-        )
-        
-        if not created and device.confirmed:
-            return Response({
-                'detail': '2FA is already set up'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Generate QR code
-        totp_uri = pyotp.totp.TOTP(device.secret_key).provisioning_uri(
-            name=user.email,
-            issuer_name='Klararety Health'
-        )
-        
-        qr = qrcode.QRCode(version=1, box_size=10, border=5)
-        qr.add_data(totp_uri)
-        qr.make(fit=True)
-        
-        img = qr.make_image(fill_color="black", back_color="white")
-        buffer = io.BytesIO()
-        img.save(buffer, format='PNG')
-        qr_code = base64.b64encode(buffer.getvalue()).decode()
-        
-        return Response({
-            'qr_code': f'data:image/png;base64,{qr_code}',
-            'secret_key': device.secret_key
-        })
-
+    
     @action(detail=False, methods=['get'])
     def get_2fa_status(self, request):
         """Get 2FA status for authenticated user."""

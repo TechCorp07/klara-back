@@ -277,13 +277,13 @@ CORS_ALLOW_HEADERS = (
     *default_headers,
     "cache-control",
     "x-request-timestamp",
+    "x-tab-id",
     "pragma",
 )
 
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[
     "https://klararety.com",
     "http://localhost:3000",
-    "http://127.0.0.1:3000",
     "https://localhost:8000",   # Your backend
     "https://127.0.0.1:8000",
 ])
