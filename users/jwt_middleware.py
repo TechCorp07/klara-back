@@ -57,7 +57,10 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
         skip_paths = [
             '/api/users/auth/login/',
             '/api/users/auth/register/',
-            '/api/users/auth/refresh/', 
+            '/api/users/auth/refresh/',
+            '/api/users/auth/verify-2fa/',
+            '/api/users/auth/request-2fa-email-backup/', 
+            '/api/users/auth/verify-2fa-email-backup/',
             '/api/docs/',
             '/api/schema/',
         ]
@@ -221,7 +224,10 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
             '/api/users/auth/verify-email/',
             '/api/users/auth/forgot-password/',
             '/api/users/auth/reset-password/',
-            '/api/users/auth/refresh/',  # Token refresh might be considered semi-public
+            '/api/users/auth/refresh/',
+            '/api/users/auth/verify-2fa/',
+            '/api/users/auth/request-2fa-email-backup/',
+            '/api/users/auth/verify-2fa-email-backup/',
         ]
         
         if path in exact_public_paths:
