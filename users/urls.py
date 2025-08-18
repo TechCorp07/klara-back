@@ -50,8 +50,10 @@ urlpatterns = [
     path('auth/confirm-2fa/', UserViewSet.as_view({'post': 'confirm_2fa'}), name='confirm-2fa'),
     path('auth/verify-2fa/', UserViewSet.as_view({'post': 'verify_2fa'}), name='verify-2fa'),
     path('auth/disable-2fa/', UserViewSet.as_view({'post': 'disable_2fa'}), name='disable-2fa'),
+    path('auth/request-2fa-email-backup/', UserViewSet.as_view({'post': 'request_2fa_email_backup'}), name='request-2fa-email-backup'),
+    path('auth/verify-2fa-email-backup/', UserViewSet.as_view({'post': 'verify_2fa_email_backup'}), name='verify-2fa-email-backup'),
     path('auth/register/', UserViewSet.as_view({'post': 'create'}), name='register'),
-
+    
     # Session Management
     path('auth/sessions/', UserViewSet.as_view({'get': 'list_user_sessions'}), name='user-sessions'),
     path('auth/session/terminate/', UserViewSet.as_view({'post': 'terminate_session'}), name='terminate-session'),

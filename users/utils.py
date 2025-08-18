@@ -192,6 +192,43 @@ class EmailService:
         
         cls.send_email(subject, message, [user.email])
     
+    @staticmethod
+    def send_2fa_backup_email(user, backup_code):
+        """Send 2FA backup verification code via email."""
+        subject = f"{settings.PLATFORM_NAME} - Account Verification Code"
+        
+        context = {
+            'user': user,
+            'backup_code': backup_code,
+            'platform_name': settings.PLATFORM_NAME,
+            'expires_minutes': 10,
+        }
+        
+        html_content = render_to_string('emails/2fa_backup_code.html', context)
+        text_content = f"""
+    {settings.PLATFORM_NAME} - Account Verification
+
+    Hello {user.get_full_name() or user.email},
+
+    Your verification code is: {backup_code}
+
+    This code will expire in 10 minutes.
+
+    If you didn't request this code, please contact our support team immediately.
+
+    Best regards,
+    {settings.PLATFORM_NAME} Security Team
+        """
+        
+        send_mail(
+            subject=subject,
+            message=text_content,
+            html_message=html_content,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+    
     @classmethod
     def send_emergency_access_notification(cls, emergency_access):
         """Notify compliance of emergency access."""

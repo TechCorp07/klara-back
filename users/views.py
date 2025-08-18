@@ -1,10 +1,14 @@
 # users/views.py
 import hashlib
+import random
+from django.core.cache import cache
 import pyotp
 import qrcode
 import io
 import base64
 import logging
+from django.template.loader import render_to_string
+from django.core.mail import send_mail
 from datetime import timedelta
 from django.db import transaction
 from django.db.models import Count, Q, Avg
@@ -26,6 +30,7 @@ from healthcare.models import MedicalRecord, FamilyHistory, GeneticAnalysis
 from healthcare.serializers import GeneticAnalysisSerializer, GeneticAnalysisCreateSerializer
 from healthcare.services.genetic_analysis_service import GeneticAnalysisService
 
+from .utils import EmailService, SecurityLogger
 from .models import (
     AuditTrail, EmergencyAccess, ConsentRecord, HIPAADocument, PharmaceuticalTenant, RefreshToken, ResearchConsent, TwoFactorDevice, 
     PatientProfile, ProviderProfile, PharmcoProfile, CaregiverProfile, 
@@ -47,7 +52,6 @@ from .permissions import (
     IsAdminOrSelfOnly, IsApprovedUser, IsRoleOwnerOrReadOnly, 
     IsComplianceOfficer
 )
-from .utils import EmailService, SecurityLogger
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -1071,6 +1075,118 @@ class UserViewSet(BaseViewSet):
                 'setup_required': True
             })
     
+    @action(detail=False, methods=['post'])
+    def request_2fa_email_backup(self, request):
+        """Request email-based 2FA backup code for users who lost their device."""
+        user_id = request.data.get('user_id')
+        
+        if not user_id:
+            return Response({
+                'error': 'User ID is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            user = User.objects.get(id=user_id, two_factor_enabled=True)
+            
+            # Generate a 6-digit backup code
+            backup_code = str(random.randint(100000, 999999))
+            
+            # Store the backup code with expiration (10 minutes)
+            cache_key = f"2fa_email_backup_{user.id}"
+            cache.set(cache_key, backup_code, 600)  # 10 minutes
+            
+            # Send email with backup code
+            EmailService.send_2fa_backup_email(user, backup_code)
+            
+            self.log_security_event(
+                user=user,
+                event_type="2FA_EMAIL_BACKUP_REQUESTED",
+                description="User requested email backup for 2FA",
+                request=request
+            )
+            
+            return Response({
+                'message': 'Backup verification code sent to your email address',
+                'detail': f'A 6-digit code has been sent to {user.email[:3]}***@{user.email.split("@")[1]}'
+            })
+            
+        except User.DoesNotExist:
+            return Response({
+                'error': 'User not found or 2FA not enabled'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'])
+    def verify_2fa_email_backup(self, request):
+        """Verify email-based 2FA backup code and complete login."""
+        user_id = request.data.get('user_id')
+        backup_code = request.data.get('backup_code')
+        
+        if not user_id or not backup_code:
+            return Response({
+                'error': 'User ID and backup code are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            user = User.objects.get(id=user_id)
+            cache_key = f"2fa_email_backup_{user.id}"
+            stored_code = cache.get(cache_key)
+            
+            if not stored_code or stored_code != backup_code:
+                self.log_security_event(
+                    user=user,
+                    event_type="2FA_EMAIL_BACKUP_FAILED",
+                    description="Invalid email backup code attempt",
+                    request=request
+                )
+                return Response({
+                    'error': 'Invalid or expired backup code'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Clear the used backup code
+            cache.delete(cache_key)
+            
+            # Get client information
+            ip_address = self.get_client_ip(request)
+            user_agent = self.get_user_agent(request)
+            
+            # Create session and tokens (same as regular 2FA verification)
+            with transaction.atomic():
+                session = SessionManager.create_session(
+                    user=user,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    pharmaceutical_tenant=user.primary_pharmaceutical_tenant
+                )
+                
+                access_token = JWTAuthenticationManager.create_access_token(user, session)
+                refresh_token = JWTAuthenticationManager.create_refresh_token(user, session, ip_address)
+                session_token = SessionManager.create_session_token(session, duration_hours=1)
+            
+            self.log_security_event(
+                user=user,
+                event_type="2FA_EMAIL_BACKUP_SUCCESS",
+                description="Successful email backup verification - login completed",
+                request=request
+            )
+            
+            return Response({
+                'access_token': access_token,
+                'refresh_token': refresh_token._raw_token,
+                'session_token': session_token,
+                'token_type': 'Bearer',
+                'expires_in': JWTAuthenticationManager.ACCESS_TOKEN_LIFETIME.total_seconds(),
+                'user': UserSerializer(user).data,
+                'session': {
+                    'session_id': str(session.session_id),
+                    'expires_at': session.expires_at.isoformat(),
+                }
+            })
+            
+        except User.DoesNotExist:
+            return Response({
+                'error': 'User not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated, IsApprovedUser])
     def change_password(self, request):
         """
