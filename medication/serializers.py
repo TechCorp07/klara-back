@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from healthcare.serializers import UserBasicSerializer, ConditionSerializer
 from .models import (
-    Medication, Prescription, MedicationIntake, MedicationReminder,
+    Medication, MedicationAdherence, Prescription, MedicationIntake, MedicationReminder,
     AdherenceRecord, SideEffect, DrugInteraction
 )
 
@@ -255,3 +255,10 @@ class MedicationReminderSerializer(serializers.ModelSerializer):
     
     def get_medication_details(self, obj):
         return
+
+
+class MedicationAdherenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MedicationAdherence
+        fields = '__all__'
+        read_only_fields = ('created_at', 'updated_at')

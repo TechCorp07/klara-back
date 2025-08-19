@@ -4,6 +4,10 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from healthcare.fields import EncryptedCharField, EncryptedJSONField, EncryptedTextField, EncryptedDateField
 from healthcare.models import MedicalRecord, Condition
+from django.core.validators import MinValueValidator, MaxValueValidator
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 class Medication(models.Model):
     """
@@ -157,7 +161,12 @@ class Medication(models.Model):
     
     # FHIR Integration
     fhir_resource_id = models.CharField(max_length=100, blank=True, null=True)
-    
+    effectiveness_ratings = models.JSONField(default=list)  # Store effectiveness ratings
+    side_effects_history = models.JSONField(default=list)   # Track side effects over time
+    adherence_goal = models.FloatField(default=0.90)        # Patient's adherence goal
+    is_rare_condition_med = models.BooleanField(default=False)
+    smart_reminders_enabled = models.BooleanField(default=True)
+
     # Meta information
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -638,3 +647,41 @@ class DrugInteraction(models.Model):
         verbose_name_plural = "Drug Interactions"
         # Ensure each medication pair is only registered once for a patient
         unique_together = [['medication_a', 'medication_b', 'patient']]
+
+
+class MedicationAdherence(models.Model):
+    """Enhanced medication adherence tracking with effectiveness and mood data."""
+    
+    prescription = models.ForeignKey('Prescription', on_delete=models.CASCADE, related_name='adherence_records')
+    date = models.DateField()
+    scheduled_time = models.DateTimeField()
+    taken = models.BooleanField()
+    taken_time = models.DateTimeField(null=True, blank=True)
+    effectiveness_rating = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(5)])  # 1-5
+    mood_before = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(5)])           # 1-5
+    mood_after = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(5)])            # 1-5
+    symptoms_before = models.JSONField(default=list)
+    symptoms_after = models.JSONField(default=list)
+    side_effects = models.JSONField(default=list)
+    notes = models.TextField(blank=True)
+    missed_reason = models.CharField(max_length=100, blank=True, choices=[
+        ('forgot', 'Forgot to take it'),
+        ('side_effects', 'Experienced side effects'),
+        ('feeling_better', 'Feeling better'),
+        ('ran_out', 'Ran out of medication'),
+        ('travel', 'Traveling/not at home'),
+        ('cost', 'Cost concerns'),
+        ('other', 'Other reason'),
+    ])
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-scheduled_time']
+        unique_together = ['prescription', 'scheduled_time']
+        
+    def __str__(self):
+        status = "Taken" if self.taken else "Missed"
+        return f"{self.prescription.medication_name} - {self.date} - {status}"

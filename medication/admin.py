@@ -3,7 +3,7 @@ from django.utils.html import format_html
 from django.urls import reverse
 from .models import (
     Medication, Prescription, MedicationIntake, MedicationReminder,
-    AdherenceRecord, SideEffect, DrugInteraction
+    AdherenceRecord, SideEffect, DrugInteraction, MedicationAdherence
 )
 
 class MedicationIntakeInline(admin.TabularInline):
@@ -89,6 +89,11 @@ class MedicationAdmin(admin.ModelAdmin):
         }),
         ('FHIR', {
             'fields': ('fhir_resource_id',),
+            'classes': ('collapse',),
+        }),
+        ('Enhanced Tracking', {
+            'fields': ('effectiveness_ratings', 'side_effects_history', 'adherence_goal', 
+                      'is_rare_condition_med', 'smart_reminders_enabled'),
             'classes': ('collapse',),
         }),
         ('Meta', {
@@ -557,3 +562,34 @@ class SideEffectAdmin(admin.ModelAdmin):
             return format_html('<span style="color: red;">Yes</span>')
         return format_html('<span style="color: green;">No</span>')
     ongoing_display.short_description = "Ongoing"
+
+
+@admin.register(MedicationAdherence)
+class MedicationAdherenceAdmin(admin.ModelAdmin):
+    """Admin interface for medication adherence records."""
+    list_display = ('prescription', 'date', 'scheduled_time', 'taken', 'effectiveness_rating', 'created_at')
+    list_filter = ('taken', 'date', 'effectiveness_rating', 'prescription__medication_name')
+    search_fields = ('prescription__medication_name', 'prescription__patient__username', 'notes')
+    readonly_fields = ('created_at', 'updated_at')
+    date_hierarchy = 'date'
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('prescription', 'date', 'scheduled_time', 'taken', 'taken_time')
+        }),
+        ('Effectiveness & Mood', {
+            'fields': ('effectiveness_rating', 'mood_before', 'mood_after'),
+            'classes': ('collapse',),
+        }),
+        ('Symptoms & Side Effects', {
+            'fields': ('symptoms_before', 'symptoms_after', 'side_effects'),
+            'classes': ('collapse',),
+        }),
+        ('Notes & Reasons', {
+            'fields': ('notes', 'missed_reason'),
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
