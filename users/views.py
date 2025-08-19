@@ -891,7 +891,7 @@ class UserViewSet(BaseViewSet):
             return Response({
                 'detail': 'Invalid or expired verification token'
             }, status=status.HTTP_400_BAD_REQUEST)
-    
+
     @action(detail=False, methods=['post'])
     def request_email_verification(self, request):
         """Request new email verification token."""
@@ -3277,7 +3277,7 @@ class PatientViewSet(viewsets.ModelViewSet):
                 {'detail': 'Failed to upload photo'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
+    
     @action(detail=False, methods=['delete'], url_path='delete-photo')
     def delete_photo(self, request):
         """Delete profile photo for patient."""
@@ -3609,100 +3609,78 @@ class PatientViewSet(viewsets.ModelViewSet):
                 'error': 'Failed to regenerate genetic analysis.'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    @action(detail=False, methods=['get'], url_path='privacy-settings')
+    @action(detail=False, methods=['get', 'patch'], url_path='privacy-settings')
     def privacy_settings(self, request):
-        """Get patient privacy settings."""
+        """Get or update patient privacy settings."""
         user = request.user
         
         try:
             from users.models import PatientProfile
             profile, created = PatientProfile.objects.get_or_create(user=user)
             
-            privacy_settings = {
-                'share_data_for_research': getattr(profile, 'research_participation_consent', False),
-                'share_data_with_providers': getattr(profile, 'provider_data_sharing_consent', True),
-                'allow_marketing_communications': getattr(profile, 'marketing_communications_consent', False),
-                'data_retention_consent': getattr(profile, 'data_retention_consent', True),
-                'anonymous_usage_analytics': getattr(profile, 'anonymous_analytics_consent', False),
-                'medication_adherence_monitoring_consent': getattr(profile, 'medication_adherence_monitoring_consent', True),
-                'vitals_monitoring_consent': getattr(profile, 'vitals_monitoring_consent', True),
-            }
-            
-            return Response(privacy_settings)
-            
-        except Exception as e:
-            logger.error(f"Failed to load privacy settings for user {user.id}: {str(e)}")
-            return Response(
-                {'detail': 'Failed to load privacy settings'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    @action(detail=False, methods=['patch'], url_path='privacy-settings')
-    def update_privacy_settings(self, request):
-        """Update patient privacy settings."""
-        user = request.user
-        
-        try:
-            from users.models import PatientProfile
-            profile, created = PatientProfile.objects.get_or_create(user=user)
-            
-            # Update privacy settings fields
-            valid_fields = [
-                'share_data_for_research', 'share_data_with_providers', 
-                'allow_marketing_communications', 'data_retention_consent',
-                'anonymous_usage_analytics', 'medication_adherence_monitoring_consent',
-                'vitals_monitoring_consent'
-            ]
-            
-            # Map frontend fields to model fields
-            field_mapping = {
-                'share_data_for_research': 'research_participation_consent',
-                'share_data_with_providers': 'provider_data_sharing_consent',
-                'allow_marketing_communications': 'marketing_communications_consent',
-                'data_retention_consent': 'data_retention_consent',
-                'anonymous_usage_analytics': 'anonymous_analytics_consent',
-                'medication_adherence_monitoring_consent': 'medication_adherence_monitoring_consent',
-                'vitals_monitoring_consent': 'vitals_monitoring_consent',
-            }
-            
-            updated_fields = []
-            for frontend_field, model_field in field_mapping.items():
-                if frontend_field in request.data:
-                    old_value = getattr(profile, model_field, None)
-                    new_value = request.data[frontend_field]
-                    
-                    if old_value != new_value:
-                        setattr(profile, model_field, new_value)
-                        updated_fields.append(model_field)
+            if request.method == 'GET':
+                privacy_settings = {
+                    'share_data_for_research': getattr(profile, 'research_participation_consent', False),
+                    'share_data_with_providers': getattr(profile, 'provider_data_sharing_consent', True),
+                    'allow_marketing_communications': getattr(profile, 'marketing_communications_consent', False),
+                    'data_retention_consent': getattr(profile, 'data_retention_consent', True),
+                    'anonymous_usage_analytics': getattr(profile, 'anonymous_analytics_consent', False),
+                    'medication_adherence_monitoring_consent': getattr(profile, 'medication_adherence_monitoring_consent', True),
+                    'vitals_monitoring_consent': getattr(profile, 'vitals_monitoring_consent', True),
+                }
+                
+                return Response(privacy_settings)
+                
+            elif request.method == 'PATCH':
+                # Map frontend fields to model fields
+                field_mapping = {
+                    'share_data_for_research': 'research_participation_consent',
+                    'share_data_with_providers': 'provider_data_sharing_consent',
+                    'allow_marketing_communications': 'marketing_communications_consent',
+                    'data_retention_consent': 'data_retention_consent',
+                    'anonymous_usage_analytics': 'anonymous_analytics_consent',
+                    'medication_adherence_monitoring_consent': 'medication_adherence_monitoring_consent',
+                    'vitals_monitoring_consent': 'vitals_monitoring_consent',
+                }
+                
+                updated_fields = []
+                for frontend_field, model_field in field_mapping.items():
+                    if frontend_field in request.data:
+                        old_value = getattr(profile, model_field, None)
+                        new_value = request.data[frontend_field]
                         
-                        # Log consent change for audit trail
-                        try:
-                            from users.models import ConsentRecord
-                            ConsentRecord.objects.create(
-                                user=user,
-                                consent_type=model_field.upper(),
-                                consented=new_value,
-                                signature_ip=self.get_client_ip(request),
-                                signature_user_agent=request.META.get('HTTP_USER_AGENT', '')
-                            )
-                        except Exception as consent_error:
-                            logger.warning(f"Failed to log consent change: {str(consent_error)}")
-            
-            if updated_fields:
-                profile.save(update_fields=updated_fields)
-            
-            return Response({
-                'detail': 'Privacy settings updated successfully',
-                'updated_fields': updated_fields
-            })
-            
+                        if old_value != new_value:
+                            setattr(profile, model_field, new_value)
+                            updated_fields.append(model_field)
+                            
+                            # Log consent change for audit trail
+                            try:
+                                from users.models import ConsentRecord
+                                ConsentRecord.objects.create(
+                                    user=user,
+                                    consent_type=model_field.upper(),
+                                    consented=new_value,
+                                    signature_ip=self.get_client_ip(request),
+                                    signature_user_agent=request.META.get('HTTP_USER_AGENT', '')
+                                )
+                            except Exception as consent_error:
+                                logger.warning(f"Failed to log consent change: {str(consent_error)}")
+                
+                if updated_fields:
+                    profile.save(update_fields=updated_fields)
+                
+                return Response({
+                    'detail': 'Privacy settings updated successfully',
+                    'updated_fields': updated_fields
+                })
+                
         except Exception as e:
-            logger.error(f"Failed to update privacy settings for user {user.id}: {str(e)}")
+            logger.error(f"Failed to handle privacy settings for user {user.id}: {str(e)}")
             return Response(
-                {'detail': 'Failed to update privacy settings'},
+                {'detail': 'Failed to handle privacy settings'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
+    
     # Helper methods for calculations
     def _calculate_overall_health_status(self, user, patient_profile, medical_record):
         """Calculate overall health status based on multiple factors."""
