@@ -206,10 +206,16 @@ class UserViewSet(BaseViewSet):
             # Handle session token refresh
             if session_token:
                 try:
+                    import hashlib
                     from users.models import UserSession
+                    
+                    # Hash the session token to match stored hash
+                    token_hash = hashlib.sha256(session_token.encode()).hexdigest()
+                    
                     session = UserSession.objects.select_related('user').get(
-                        session_token=session_token,
-                        is_active=True
+                        session_token_hash=token_hash,  # Use correct field name
+                        is_active=True,
+                        session_token_expires__gt=timezone.now()  # Check token expiration
                     )
                     
                     # Check if session is expired
@@ -885,7 +891,7 @@ class UserViewSet(BaseViewSet):
             return Response({
                 'detail': 'Invalid or expired verification token'
             }, status=status.HTTP_400_BAD_REQUEST)
-
+    
     @action(detail=False, methods=['post'])
     def request_email_verification(self, request):
         """Request new email verification token."""
@@ -916,65 +922,37 @@ class UserViewSet(BaseViewSet):
         """Setup 2FA for authenticated user."""
         user = request.user
         
-        try:
-            # Check if user already has 2FA enabled
-            if user.two_factor_enabled:
-                return Response({
-                    'detail': '2FA is already enabled'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Check if there's an existing unconfirmed device
-            try:
-                device = TwoFactorDevice.objects.get(user=user, confirmed=False)
-                device.delete()  # Remove old unconfirmed device
-            except TwoFactorDevice.DoesNotExist:
-                pass
-            
-            # Generate new secret
-            import pyotp
-            secret = pyotp.random_base32()
-            
-            # Create new device
-            device = TwoFactorDevice.objects.create(
-                user=user,
-                secret_key=secret,
-                confirmed=False
-            )
-            
-            # Generate QR code
-            totp = pyotp.TOTP(secret)
-            provisioning_uri = totp.provisioning_uri(
-                user.email,
-                issuer_name="Klararety Healthcare"
-            )
-            
-            # Generate QR code image
-            import qrcode
-            import io
-            import base64
-            
-            qr = qrcode.QRCode(version=1, box_size=10, border=5)
-            qr.add_data(provisioning_uri)
-            qr.make(fit=True)
-            
-            img = qr.make_image(fill_color="black", back_color="white")
-            buffer = io.BytesIO()
-            img.save(buffer, format='PNG')
-            img_str = base64.b64encode(buffer.getvalue()).decode()
-            
+        # Generate or get existing device
+        device, created = TwoFactorDevice.objects.get_or_create(
+            user=user,
+            defaults={'secret_key': pyotp.random_base32()}
+        )
+        
+        if not created and device.confirmed:
             return Response({
-                'secret_key': secret,
-                'qr_code': f"data:image/png;base64,{img_str}",
-                'manual_entry_key': secret,
-                'detail': 'Scan the QR code with your authenticator app'
-            })
-            
-        except Exception as e:
-            logger.error(f"Error setting up 2FA for user {user.id}: {str(e)}")
-            return Response({
-                'detail': 'Failed to setup 2FA'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+                'detail': '2FA is already set up'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Generate QR code
+        totp_uri = pyotp.totp.TOTP(device.secret_key).provisioning_uri(
+            name=user.email,
+            issuer_name='Klararety Health'
+        )
+        
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(totp_uri)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG')
+        qr_code = base64.b64encode(buffer.getvalue()).decode()
+        
+        return Response({
+            'qr_code': f'data:image/png;base64,{qr_code}',
+            'secret_key': device.secret_key
+        })
+
     @action(detail=False, methods=['post'])
     def confirm_2fa(self, request):
         """Confirm 2FA setup."""
