@@ -253,6 +253,15 @@ class PatientProfileAdmin(admin.ModelAdmin):
                 'anonymous_analytics_consent', 'anonymous_analytics_consent_date'
             )
         }),
+        ('Notification Preferences', {
+            'fields': (
+                'email_appointment_reminders', 'email_medication_reminders',
+                'email_health_records', 'email_research_updates',
+                'sms_appointment_reminders', 'sms_medication_reminders',
+                'sms_emergency_alerts', 'in_app_notifications',
+                'smartwatch_notifications', 'push_notifications'
+            )
+        }),
     )
     
     def verification_status(self, obj):

@@ -399,7 +399,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
         count = self.get_queryset().filter(read_at__isnull=True).count()
         return Response({'unread_count': count})
     
-    @action(detail=False, methods=['get', 'post'], url_path='preferences')
+    @action(detail=False, methods=['get', 'patch'], url_path='preferences')  # Changed 'post' to 'patch'
     def preferences(self, request):
         """Get or update notification preferences for the current user."""
         user = request.user
@@ -441,7 +441,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
                     'push_notifications': True,
                 })
         
-        elif request.method == 'POST':
+        elif request.method == 'PATCH':  # Changed from 'POST' to 'PATCH'
             # Update preferences
             try:
                 from users.models import PatientProfile

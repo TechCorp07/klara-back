@@ -3662,9 +3662,23 @@ class PatientViewSet(BaseViewSet):
                             # Log consent change for audit trail
                             try:
                                 from users.models import ConsentRecord
+                                
+                                # Use shorter consent type names that fit in the field
+                                consent_type_mapping = {
+                                    'research_participation_consent': 'RESEARCH_PARTICIPATION',
+                                    'provider_data_sharing_consent': 'PROVIDER_DATA_SHARING',
+                                    'marketing_communications_consent': 'MARKETING_COMMUNICATIONS',
+                                    'data_retention_consent': 'DATA_RETENTION',
+                                    'anonymous_analytics_consent': 'ANONYMOUS_ANALYTICS',
+                                    'medication_adherence_monitoring_consent': 'MEDICATION_MONITORING',
+                                    'vitals_monitoring_consent': 'VITALS_MONITORING',
+                                }
+                                
+                                consent_type = consent_type_mapping.get(model_field, model_field.upper())
+                                
                                 ConsentRecord.objects.create(
                                     user=user,
-                                    consent_type=model_field.upper(),
+                                    consent_type=consent_type,
                                     consented=new_value,
                                     signature_ip=self.get_client_ip(request),
                                     signature_user_agent=request.META.get('HTTP_USER_AGENT', '')

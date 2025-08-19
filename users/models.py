@@ -359,6 +359,18 @@ class PatientProfile(models.Model):
         default='immediate'
     )
     
+    # Notification preferences
+    email_appointment_reminders = models.BooleanField(default=True)
+    email_medication_reminders = models.BooleanField(default=True)
+    email_health_records = models.BooleanField(default=True)
+    email_research_updates = models.BooleanField(default=False)
+    sms_appointment_reminders = models.BooleanField(default=False)
+    sms_medication_reminders = models.BooleanField(default=True)
+    sms_emergency_alerts = models.BooleanField(default=True)
+    in_app_notifications = models.BooleanField(default=True)
+    smartwatch_notifications = models.BooleanField(default=False)
+    push_notifications = models.BooleanField(default=True)
+    
     # Appointment reminders
     appointment_reminder_enabled = models.BooleanField(default=True)
     appointment_reminder_methods = models.JSONField(default=list)
@@ -775,10 +787,14 @@ class ConsentRecord(models.Model):
         ('CAREGIVER_ACCESS', 'Caregiver Access Authorization'),
         ('PHI_HANDLING', 'PHI Handling Agreement'),
         ('IDENTITY_VERIFICATION', 'Identity Verification'),
+        ('PROVIDER_DATA_SHARING', 'Provider Data Sharing'),
+        ('MARKETING_COMMUNICATIONS', 'Marketing Communications'),
+        ('DATA_RETENTION', 'Data Retention'),
+        ('ANONYMOUS_ANALYTICS', 'Anonymous Analytics'),
     ]
     
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='consent_records')
-    consent_type = models.CharField(max_length=30, choices=CONSENT_TYPES)
+    consent_type = models.CharField(max_length=50, choices=CONSENT_TYPES)
     consented = models.BooleanField()
     
     # E-signature details
