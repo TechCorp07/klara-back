@@ -328,6 +328,16 @@ class PatientProfile(models.Model):
     research_participation_consent = models.BooleanField(default=False)
     research_consent_date = models.DateTimeField(null=True, blank=True)
     
+    # PRIVACY CONSENT FIELDS
+    provider_data_sharing_consent = models.BooleanField(default=True)
+    provider_data_sharing_consent_date = models.DateTimeField(null=True, blank=True)
+    marketing_communications_consent = models.BooleanField(default=False)
+    marketing_communications_consent_date = models.DateTimeField(null=True, blank=True)
+    data_retention_consent = models.BooleanField(default=True)
+    data_retention_consent_date = models.DateTimeField(null=True, blank=True)
+    anonymous_analytics_consent = models.BooleanField(default=False)
+    anonymous_analytics_consent_date = models.DateTimeField(null=True, blank=True)
+    
     # Identity verification
     identity_verified = models.BooleanField(default=False)
     identity_verification_date = models.DateTimeField(null=True, blank=True)

@@ -2221,7 +2221,7 @@ class PatientProfileViewSet(BaseViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
 
 
-class PatientViewSet(viewsets.ModelViewSet):
+class PatientViewSet(BaseViewSet):
     """ViewSet for patient-specific operations."""
     serializer_class = PatientProfileSerializer
     permission_classes = [IsAuthenticated, IsApprovedUser]
@@ -3652,6 +3652,12 @@ class PatientViewSet(viewsets.ModelViewSet):
                         if old_value != new_value:
                             setattr(profile, model_field, new_value)
                             updated_fields.append(model_field)
+
+                            # Set consent date for new consents
+                            consent_date_field = f"{model_field.replace('_consent', '')}_consent_date"
+                            if hasattr(profile, consent_date_field) and new_value:
+                                setattr(profile, consent_date_field, timezone.now())
+                                updated_fields.append(consent_date_field)
                             
                             # Log consent change for audit trail
                             try:

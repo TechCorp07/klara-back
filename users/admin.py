@@ -245,6 +245,14 @@ class PatientProfileAdmin(admin.ModelAdmin):
                 'research_consent_date'
             )
         }),
+        ('Enhanced Privacy Consent', {
+            'fields': (
+                'provider_data_sharing_consent', 'provider_data_sharing_consent_date',
+                'marketing_communications_consent', 'marketing_communications_consent_date',
+                'data_retention_consent', 'data_retention_consent_date',
+                'anonymous_analytics_consent', 'anonymous_analytics_consent_date'
+            )
+        }),
     )
     
     def verification_status(self, obj):
