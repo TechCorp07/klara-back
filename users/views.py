@@ -187,74 +187,109 @@ class UserViewSet(BaseViewSet):
 
     @action(detail=False, methods=['post'], permission_classes=[], authentication_classes=[])
     def refresh_session(self, request):
-        """Refresh session token - simpler than JWT refresh."""
+        """Enhanced refresh session with proper JWT token handling."""
         session_token = request.data.get('session_token')
-        refresh_token = request.data.get('refresh_token')  # Also accept refresh_token
+        refresh_token = request.data.get('refresh_token')
         tab_id = request.data.get('tab_id')
         
-        # Try both session_token and refresh_token for compatibility
-        token_to_use = session_token or refresh_token
-        
-        if not token_to_use:
+        if not session_token and not refresh_token:
             return Response({
                 'error': 'Session token or refresh token required',
                 'detail': 'Either session_token or refresh_token must be provided'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            # First try as session token
-            try:
-                from users.models import UserSession
-                session = UserSession.objects.get(
-                    session_token=token_to_use,
-                    is_active=True,
-                    expires_at__gt=timezone.now()
-                )
-                
-                # Extend session expiry
-                session.expires_at = timezone.now() + timedelta(hours=24)
-                session.save()
-                
-                return Response({
-                    'success': True,
-                    'message': 'Session refreshed',
-                    'expires_at': session.expires_at.isoformat(),
-                    'tab_id': tab_id
-                })
-                
-            except UserSession.DoesNotExist:
-                # If not found as session token, try as refresh token
-                
-                # Get client information
-                ip_address = self.get_client_ip(request)
-                user_agent = self.get_user_agent(request)
-                
-                # Try to refresh using JWT manager
-                success, new_access_token, error_message = JWTAuthenticationManager.refresh_access_token(
-                    token_to_use, ip_address, user_agent
-                )
-                
-                if success:
+            # Get client information
+            ip_address = self.get_client_ip(request)
+            user_agent = self.get_user_agent(request)
+            
+            # Handle session token refresh
+            if session_token:
+                try:
+                    from users.models import UserSession
+                    session = UserSession.objects.select_related('user').get(
+                        session_token=session_token,
+                        is_active=True
+                    )
+                    
+                    # Check if session is expired
+                    if session.is_expired():
+                        return Response({
+                            'error': 'Session expired',
+                            'detail': 'Session has expired and cannot be refreshed'
+                        }, status=status.HTTP_401_UNAUTHORIZED)
+                    
+                    # Extend session expiry
+                    session.expires_at = timezone.now() + timedelta(hours=24)
+                    session.save(update_fields=['expires_at'])
+                    
+                    # Create new JWT access token
+                    new_access_token = JWTAuthenticationManager.create_access_token(session.user, session)
+                    
                     return Response({
                         'success': True,
                         'access_token': new_access_token,
+                        'session_token': session_token,  # Return same session token
                         'token_type': 'Bearer',
-                        'expires_in': 900,  # 15 minutes
+                        'expires_in': JWTAuthenticationManager.ACCESS_TOKEN_LIFETIME.total_seconds(),
+                        'session': {
+                            'expires_at': session.expires_at.isoformat(),
+                            'session_id': str(session.session_id)
+                        },
+                        'user': UserSerializer(session.user).data,
                         'tab_id': tab_id
                     })
+                    
+                except UserSession.DoesNotExist:
+                    return Response({
+                        'error': 'Invalid session token',
+                        'detail': 'Session token not found or expired'
+                    }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # Handle JWT refresh token
+            elif refresh_token:
+                success, new_access_token, error_message = JWTAuthenticationManager.refresh_access_token(
+                    refresh_token, ip_address, user_agent
+                )
+                
+                if success:
+                    # Get user data from the new token for response
+                    try:
+                        import jwt
+                        from users.jwt_auth import JWTAuthenticationManager as JWT
+                        payload = jwt.decode(new_access_token, options={"verify_signature": False})
+                        user = User.objects.get(id=payload['user_id'])
+                        
+                        return Response({
+                            'success': True,
+                            'access_token': new_access_token,
+                            'token_type': 'Bearer',
+                            'expires_in': JWT.ACCESS_TOKEN_LIFETIME.total_seconds(),
+                            'user': UserSerializer(user).data,
+                            'tab_id': tab_id
+                        })
+                    except Exception as e:
+                        logger.error(f"Error getting user data after refresh: {str(e)}")
+                        return Response({
+                            'success': True,
+                            'access_token': new_access_token,
+                            'token_type': 'Bearer',
+                            'expires_in': JWT.ACCESS_TOKEN_LIFETIME.total_seconds(),
+                            'tab_id': tab_id
+                        })
                 else:
                     return Response({
                         'error': 'Token refresh failed',
-                        'detail': error_message or 'Invalid or expired token'
+                        'detail': error_message or 'Invalid or expired refresh token'
                     }, status=status.HTTP_401_UNAUTHORIZED)
-            
+                    
         except Exception as e:
-            logger.error(f"Session refresh error: {str(e)}")
+            logger.error(f"Session refresh error: {str(e)}", exc_info=True)
             return Response({
-                'error': 'Session refresh failed',
-                'detail': 'An error occurred while refreshing the session'
+                'error': 'Internal server error',
+                'detail': 'An unexpected error occurred during token refresh'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+    
     @action(detail=False, methods=['get'])
     def session_health(self, request):
         """
@@ -983,16 +1018,25 @@ class UserViewSet(BaseViewSet):
 
     @action(detail=False, methods=['post'])
     def disable_2fa(self, request):
-        """Disable 2FA for authenticated user."""
-        serializer = TwoFactorDisableSerializer(data=request.data)
+        """Disable 2FA for authenticated user using verification code."""
+        serializer = TwoFactorSetupSerializer(data=request.data)  # Changed from TwoFactorDisableSerializer
         serializer.is_valid(raise_exception=True)
         
         user = request.user
         
-        # Verify password
-        if not user.check_password(serializer.validated_data['password']):
+        # Get the user's confirmed 2FA device
+        try:
+            device = TwoFactorDevice.objects.get(user=user, confirmed=True)
+        except TwoFactorDevice.DoesNotExist:
             return Response({
-                'detail': 'Invalid password'
+                'detail': '2FA is not enabled for this account'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Verify the token from authenticator app
+        totp = pyotp.TOTP(device.secret_key)
+        if not totp.verify(serializer.validated_data['token']):
+            return Response({
+                'detail': 'Invalid verification code'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Disable 2FA
@@ -1005,14 +1049,14 @@ class UserViewSet(BaseViewSet):
         self.log_security_event(
             user=user,
             event_type="2FA_DISABLED", 
-            description="Two-factor authentication disabled",
+            description="Two-factor authentication disabled using verification code",
             request=request
         )
         
         return Response({
             'detail': '2FA disabled successfully'
         })
-
+    
     @action(detail=False, methods=['post'])
     def verify_2fa(self, request):
         """Enhanced 2FA verification with JWT token management."""
