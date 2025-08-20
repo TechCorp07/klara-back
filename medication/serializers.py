@@ -13,6 +13,7 @@ class PrescriptionSerializer(serializers.ModelSerializer):
     """Serializer for prescriptions."""
     patient_details = UserBasicSerializer(source='patient', read_only=True)
     prescriber_details = UserBasicSerializer(source='prescriber', read_only=True)
+    medication_details = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     days_until_expiration = serializers.SerializerMethodField()
     is_expired = serializers.SerializerMethodField()
@@ -22,6 +23,18 @@ class PrescriptionSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at', 'created_by', 'updated_by')
         ref_name = "MedicationPrescriptionSerializer"
+    
+    def get_medication_details(self, obj):
+        if hasattr(obj, 'medication') and obj.medication:
+            return {
+                'id': obj.medication.id,
+                'name': obj.medication.name,
+                'generic_name': getattr(obj.medication, 'generic_name', ''),
+                'manufacturer': getattr(obj.medication, 'manufacturer', ''),
+                'form': getattr(obj.medication, 'form', ''),
+                'strength': getattr(obj.medication, 'strength', ''),
+            }
+        return None
     
     def get_days_until_expiration(self, obj):
         return obj.days_until_expiration()
