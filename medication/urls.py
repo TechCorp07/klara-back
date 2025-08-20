@@ -19,9 +19,17 @@ router.register(r'interactions', DrugInteractionViewSet, basename='druginteracti
 
 urlpatterns = [
     path('', include(router.urls)),
+    
     # Provider prescription management
     path('prescriptions/create/', PrescriptionViewSet.as_view({'post': 'create_prescription'}), name='create-prescription'),
     path('prescriptions/my-patients/', PrescriptionViewSet.as_view({'get': 'my_patients'}), name='provider-patients'),
+    
+    # Patient prescription endpoints  
+    path('prescriptions/analytics/', PrescriptionViewSet.as_view({'get': 'analytics'}), name='prescription-analytics'),
+    path('prescriptions/reminders/', PrescriptionViewSet.as_view({'get': 'reminders', 'patch': 'reminders'}), name='prescription-reminders'),
+    path('prescriptions/insights/', PrescriptionViewSet.as_view({'get': 'insights'}), name='prescription-insights'),
+    path('prescriptions/interactions/', PrescriptionViewSet.as_view({'get': 'interactions'}), name='prescription-interactions'),
+    path('prescriptions/schedule/', PrescriptionViewSet.as_view({'get': 'schedule'}), name='prescription-schedule'),
     
     # Enhanced Medication endpoints
     path('adherence/intelligent-schedule/', EnhancedMedicationViewSet.as_view({'post': 'create_intelligent_reminder_schedule'}), name='intelligent-medication-schedule'),

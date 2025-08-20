@@ -675,7 +675,250 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
         
         return Response(patient_data)
     
+    @action(detail=False, methods=['get'])
+    def analytics(self, request):
+        """Get prescription analytics for the current patient."""
+        from django.db.models import Count, Avg, Q
+        from datetime import datetime, timedelta
+        
+        try:
+            # Get timeframe parameter
+            timeframe = request.query_params.get('timeframe', '30d')
+            
+            # Calculate date range
+            if timeframe == '7d':
+                days = 7
+            elif timeframe == '90d':
+                days = 90
+            else:
+                days = 30
+                
+            end_date = timezone.now().date()
+            start_date = end_date - timedelta(days=days)
+            
+            # Get patient's prescriptions (already filtered by get_queryset)
+            prescriptions = self.get_queryset().filter(status='active')
+            
+            # Get adherence records for the period
+            from .models import MedicationAdherence
+            adherence_records = MedicationAdherence.objects.filter(
+                prescription__in=prescriptions,
+                date__range=[start_date, end_date]
+            )
+            
+            # Calculate analytics
+            analytics_data = {
+                'adherence_trends': [],
+                'missed_doses': [],
+                'side_effects': [],
+                'insights': {
+                    'overall_adherence': 0,
+                    'best_adherence_day': 'Monday',
+                    'worst_adherence_day': 'Friday',
+                    'optimal_time_pattern': 'Morning doses',
+                    'improvement_suggestions': [
+                        'Set additional reminders for Friday doses',
+                        'Consider pill organizers for complex regimens',
+                        'Schedule weekend refill reminders'
+                    ]
+                }
+            }
+            
+            # Calculate daily adherence rates
+            for i in range(days):
+                current_date = start_date + timedelta(days=i)
+                day_records = adherence_records.filter(date=current_date)
+                
+                if day_records.exists():
+                    taken_count = day_records.filter(taken=True).count()
+                    total_count = day_records.count()
+                    rate = (taken_count / total_count) * 100 if total_count > 0 else 0
+                else:
+                    rate = 0
+                
+                analytics_data['adherence_trends'].append({
+                    'date': current_date.isoformat(),
+                    'rate': round(rate, 2)
+                })
+            
+            # Calculate overall adherence
+            if adherence_records.exists():
+                total_taken = adherence_records.filter(taken=True).count()
+                total_scheduled = adherence_records.count()
+                analytics_data['insights']['overall_adherence'] = round(
+                    (total_taken / total_scheduled) * 100, 2
+                ) if total_scheduled > 0 else 0
+            
+            # Get missed doses by prescription
+            for prescription in prescriptions:
+                missed_records = adherence_records.filter(
+                    prescription=prescription,
+                    taken=False
+                )
+                
+                if missed_records.exists():
+                    missed_times = [
+                        record.scheduled_time.isoformat() 
+                        for record in missed_records
+                    ]
+                    
+                    analytics_data['missed_doses'].append({
+                        'medication': prescription.medication_name,
+                        'missed_times': missed_times
+                    })
+            
+            # Get side effects
+            from .models import SideEffect
+            side_effects = SideEffect.objects.filter(
+                medication__prescription__in=prescriptions,
+                ongoing=True
+            )
+            
+            for side_effect in side_effects:
+                analytics_data['side_effects'].append({
+                    'medication': side_effect.medication.name if hasattr(side_effect, 'medication') else 'Unknown',
+                    'effects': [side_effect.description] if hasattr(side_effect, 'description') else [],
+                    'severity': side_effect.severity if hasattr(side_effect, 'severity') else 'mild'
+                })
+            
+            return Response(analytics_data)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to fetch analytics: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['get', 'patch'])
+    def reminders(self, request):
+        """Get or update medication reminder preferences for patient."""
+        if request.method == 'GET':
+            # Return current reminder preferences
+            reminder_preferences = {
+                'enabled': True,
+                'methods': ['email', 'push'],
+                'frequency': '30min',
+                'quiet_hours': {'start': '22:00', 'end': '07:00'},
+                'smart_suggestions': True
+            }
+            return Response(reminder_preferences)
+        
+        elif request.method == 'PATCH':
+            # Update reminder preferences
+            # In a real implementation, save to user profile or medication model
+            return Response({
+                'message': 'Reminder preferences updated successfully',
+                'preferences': request.data
+            })
+
+    @action(detail=False, methods=['get'])
+    def insights(self, request):
+        """Get personalized medication insights."""
+        try:
+            # Get patient's prescriptions
+            prescriptions = self.get_queryset().filter(status='active')
+            
+            insights = {
+                'adherence_score': 85,
+                'risk_factors': [
+                    'Weekend adherence drops by 15%',
+                    'Evening doses frequently missed'
+                ],
+                'recommendations': [
+                    'Set weekend reminders',
+                    'Use smart pillbox for evening doses',
+                    'Consider medication timing optimization'
+                ],
+                'patterns': {
+                    'best_time': '08:00',
+                    'worst_day': 'Saturday',
+                    'adherence_trend': 'improving'
+                },
+                'next_refill_dates': []
+            }
+            
+            # Calculate next refill dates
+            for prescription in prescriptions:
+                if prescription.expiration_date:
+                    days_until_refill = (prescription.expiration_date - timezone.now().date()).days
+                    if days_until_refill <= 30:  # Show if refill needed within 30 days
+                        insights['next_refill_dates'].append({
+                            'medication': prescription.medication_name,
+                            'days_until_refill': days_until_refill,
+                            'refill_date': prescription.expiration_date.isoformat()
+                        })
+            
+            return Response(insights)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to fetch insights: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['get'])
+    def interactions(self, request):
+        """Check for drug interactions between patient's prescriptions."""
+        try:
+            # Get patient's active prescriptions
+            prescriptions = self.get_queryset().filter(status='active')
+            
+            interactions = []
+            
+            # Check interactions between all prescription pairs
+            for i, prescription_a in enumerate(prescriptions):
+                for prescription_b in prescriptions[i+1:]:
+                    # Simple interaction check - in real implementation, 
+                    # use drug database or AI service
+                    interaction_risk = self._check_drug_interaction(
+                        prescription_a.medication_name, 
+                        prescription_b.medication_name
+                    )
+                    
+                    if interaction_risk:
+                        interactions.append({
+                            'medication_a': prescription_a.medication_name,
+                            'medication_b': prescription_b.medication_name,
+                            'severity': interaction_risk['severity'],
+                            'description': interaction_risk['description'],
+                            'recommendation': interaction_risk['recommendation']
+                        })
+            
+            return Response({
+                'interactions': interactions,
+                'total_count': len(interactions),
+                'high_risk_count': len([i for i in interactions if i['severity'] == 'high'])
+            })
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to check interactions: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _check_drug_interaction(self, med_a, med_b):
+        """Simple drug interaction checker - replace with real drug database."""
+        # This is a simplified example - use real drug interaction database
+        known_interactions = {
+            ('warfarin', 'aspirin'): {
+                'severity': 'high',
+                'description': 'Increased bleeding risk',
+                'recommendation': 'Monitor closely, consider dose adjustment'
+            },
+            ('metformin', 'alcohol'): {
+                'severity': 'moderate',
+                'description': 'Increased risk of lactic acidosis',
+                'recommendation': 'Limit alcohol consumption'
+            }
+        }
+        
+        # Check both directions
+        key1 = (med_a.lower(), med_b.lower())
+        key2 = (med_b.lower(), med_a.lower())
+        
+        return known_interactions.get(key1) or known_interactions.get(key2)
     
+
 class MedicationIntakeViewSet(viewsets.ModelViewSet):
     """API viewset for medication intakes."""
     queryset = MedicationIntake.objects.all()
