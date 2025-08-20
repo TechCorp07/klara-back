@@ -300,7 +300,175 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
         # Default empty queryset for unauthorized roles
         return Prescription.objects.none()
 
+    @action(detail=False, methods=['get'])
+    def schedule(self, request):
+        """Get patient's medication schedule for a specific date."""
+        from django.utils import timezone
+        from datetime import datetime, timedelta
+        
+        try:
+            # Get the date parameter (defaults to today)
+            date_str = request.query_params.get('date')
+            if date_str:
+                target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            else:
+                target_date = timezone.now().date()
+            
+            # Get active prescriptions for the current user (already filtered by get_queryset)
+            active_prescriptions = self.get_queryset().filter(
+                status='active'
+            )
+            
+            schedule_items = []
+            
+            for prescription in active_prescriptions:
+                # Generate scheduled times based on frequency
+                scheduled_times = self._generate_scheduled_times(prescription, target_date)
+                
+                # Get adherence records for this prescription and date
+                from .models import MedicationAdherence
+                adherence_records = MedicationAdherence.objects.filter(
+                    prescription=prescription,
+                    date=target_date
+                )
+                
+                # Create adherence data structure
+                adherence_data = []
+                for scheduled_time in scheduled_times:
+                    # Check if there's an adherence record for this time
+                    adherence_record = adherence_records.filter(
+                        scheduled_time__time=scheduled_time.time()
+                    ).first()
+                    
+                    if adherence_record:
+                        adherence_data.append({
+                            'prescription': prescription.id,
+                            'scheduled_time': adherence_record.scheduled_time.isoformat(),
+                            'taken': adherence_record.taken,
+                            'taken_time': adherence_record.taken_time.isoformat() if adherence_record.taken_time else None,
+                            'notes': adherence_record.notes or ''
+                        })
+                    else:
+                        # No record yet, so it's pending
+                        adherence_data.append({
+                            'prescription': prescription.id,
+                            'scheduled_time': scheduled_time.isoformat(),
+                            'taken': False,
+                            'taken_time': None,
+                            'notes': ''
+                        })
+                
+                # Create schedule item
+                schedule_item = {
+                    'prescription': self.get_serializer(prescription).data,
+                    'scheduled_times': [time.isoformat() for time in scheduled_times],
+                    'adherence_data': adherence_data
+                }
+                
+                schedule_items.append(schedule_item)
+            
+            return Response(schedule_items)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to fetch medication schedule: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
+    def _generate_scheduled_times(self, prescription, target_date):
+        """Generate scheduled times for a prescription on a given date."""
+        from datetime import datetime, time
+        
+        scheduled_times = []
+        
+        # Parse frequency - this is simplified, you can make it more sophisticated
+        frequency = prescription.frequency.lower()
+        
+        if 'daily' in frequency or 'once' in frequency:
+            # Once daily - morning
+            scheduled_times.append(
+                datetime.combine(target_date, time(8, 0))  # 8:00 AM
+            )
+        elif 'twice' in frequency or '2' in frequency:
+            # Twice daily
+            scheduled_times.extend([
+                datetime.combine(target_date, time(8, 0)),   # 8:00 AM
+                datetime.combine(target_date, time(20, 0))   # 8:00 PM
+            ])
+        elif 'three' in frequency or '3' in frequency:
+            # Three times daily
+            scheduled_times.extend([
+                datetime.combine(target_date, time(8, 0)),   # 8:00 AM
+                datetime.combine(target_date, time(14, 0)),  # 2:00 PM
+                datetime.combine(target_date, time(20, 0))   # 8:00 PM
+            ])
+        elif 'four' in frequency or '4' in frequency:
+            # Four times daily
+            scheduled_times.extend([
+                datetime.combine(target_date, time(8, 0)),   # 8:00 AM
+                datetime.combine(target_date, time(12, 0)),  # 12:00 PM
+                datetime.combine(target_date, time(16, 0)),  # 4:00 PM
+                datetime.combine(target_date, time(20, 0))   # 8:00 PM
+            ])
+        
+        return scheduled_times
+
+    @action(detail=True, methods=['post'])
+    def log(self, request, pk=None):
+        """Log medication taken or missed."""
+        from django.utils import timezone
+        from .models import MedicationAdherence
+        
+        try:
+            prescription = self.get_object()
+            
+            # Get data from request
+            taken_time = request.data.get('taken_time', timezone.now().isoformat())
+            taken = request.data.get('taken', True)
+            scheduled_time = request.data.get('scheduled_time')
+            notes = request.data.get('notes', '')
+            
+            # Parse scheduled_time
+            if isinstance(scheduled_time, str):
+                scheduled_time = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+            
+            # Create or update adherence record
+            adherence_record, created = MedicationAdherence.objects.get_or_create(
+                prescription=prescription,
+                scheduled_time=scheduled_time,
+                defaults={
+                    'date': scheduled_time.date(),
+                    'taken': taken,
+                    'taken_time': taken_time if taken else None,
+                    'notes': notes
+                }
+            )
+            
+            if not created:
+                # Update existing record
+                adherence_record.taken = taken
+                adherence_record.taken_time = taken_time if taken else None
+                adherence_record.notes = notes
+                adherence_record.save()
+            
+            return Response({
+                'message': 'Medication logged successfully',
+                'adherence_record': {
+                    'id': adherence_record.id,
+                    'taken': adherence_record.taken,
+                    'taken_time': adherence_record.taken_time,
+                    'scheduled_time': adherence_record.scheduled_time.isoformat(),
+                    'notes': adherence_record.notes
+                }
+            })
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to log medication: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+      
 class MedicationIntakeViewSet(viewsets.ModelViewSet):
     """API viewset for medication intakes."""
     queryset = MedicationIntake.objects.all()
