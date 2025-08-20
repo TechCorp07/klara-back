@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
+from django.db import transaction
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from datetime import timedelta
@@ -468,7 +469,213 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
-      
+    @action(detail=False, methods=['post'])
+    def create_prescription(self, request):
+        """Provider creates a new prescription for a patient."""
+        try:
+            # Ensure only providers can create prescriptions
+            if request.user.role != 'provider':
+                return Response(
+                    {'error': 'Only healthcare providers can create prescriptions'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            with transaction.atomic():
+                # Extract data
+                patient_id = request.data.get('patient_id')
+                medication_name = request.data.get('medication_name')
+                dosage = request.data.get('dosage')
+                frequency = request.data.get('frequency')
+                quantity = request.data.get('quantity')
+                refills = request.data.get('refills', 0)
+                instructions = request.data.get('instructions', '')
+                pharmacy_name = request.data.get('pharmacy_name')
+                pharmacy_phone = request.data.get('pharmacy_phone')
+                pharmacy_address = request.data.get('pharmacy_address')
+                
+                # Validate required fields
+                if not all([patient_id, medication_name, dosage, frequency, quantity]):
+                    return Response(
+                        {'error': 'Missing required fields'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Get patient and verify provider has access
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                
+                try:
+                    patient = User.objects.get(id=patient_id, role='patient')
+                except User.DoesNotExist:
+                    return Response(
+                        {'error': 'Patient not found'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+                
+                # Check if provider has access to this patient
+                has_access = self._provider_has_patient_access(request.user, patient)
+                if not has_access:
+                    return Response(
+                        {'error': 'You are not authorized to prescribe for this patient'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+                
+                # Generate prescription number
+                import uuid
+                prescription_number = f"RX{uuid.uuid4().hex[:8].upper()}"
+                
+                # Create prescription
+                prescription = Prescription.objects.create(
+                    prescription_number=prescription_number,
+                    patient=patient,
+                    prescriber=request.user,
+                    medication_name=medication_name,
+                    dosage=dosage,
+                    frequency=frequency,
+                    quantity=quantity,
+                    refills=refills,
+                    instructions=instructions,
+                    pharmacy_name=pharmacy_name,
+                    pharmacy_phone=pharmacy_phone,
+                    pharmacy_address=pharmacy_address,
+                    prescribed_date=timezone.now().date(),
+                    status='pending',
+                    created_by=request.user
+                )
+                
+                # Log prescription creation for HIPAA compliance
+                from audit.services.medication_integration import log_prescription_access
+                log_prescription_access(
+                    user=request.user,
+                    patient_id=patient.id,
+                    prescription_id=prescription.id,
+                    access_type='create',
+                    reason='Provider created new prescription'
+                )
+                
+                # If electronic prescription, send to pharmacy
+                if request.data.get('send_electronically', False):
+                    self._send_e_prescription(prescription)
+                
+                # Serialize and return
+                serializer = self.get_serializer(prescription)
+                return Response({
+                    'message': 'Prescription created successfully',
+                    'prescription': serializer.data
+                }, status=status.HTTP_201_CREATED)
+                
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to create prescription: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _provider_has_patient_access(self, provider, patient):
+        """Check if provider has access to prescribe for this patient."""
+        # Check if provider is the patient's primary physician
+        from healthcare.models import MedicalRecord
+        medical_record = MedicalRecord.objects.filter(
+            patient=patient,
+            primary_physician=provider
+        ).first()
+        
+        if medical_record:
+            return True
+        
+        # Check if there's an active appointment/consultation
+        from telemedicine.models import Appointment
+        recent_appointment = Appointment.objects.filter(
+            patient=patient,
+            provider=provider,
+            scheduled_time__gte=timezone.now() - timedelta(days=30)
+        ).first()
+        
+        if recent_appointment:
+            return True
+        
+        # Check if provider has patient in their care (you can customize this logic)
+        if hasattr(provider, 'primary_patients') and patient in provider.primary_patients.all():
+            return True
+        
+        return False
+
+    def _send_e_prescription(self, prescription):
+        """Send prescription electronically to pharmacy."""
+        try:
+            # Mark as electronically sent
+            prescription.is_electronic = True
+            prescription.save()
+            
+            # Log transmission
+            from audit.services.medication_integration import log_e_prescription_transmission
+            log_e_prescription_transmission(
+                user=prescription.prescriber,
+                patient_id=prescription.patient.id,
+                prescription_id=prescription.id,
+                pharmacy_id=prescription.pharmacy_name,  # This could be pharmacy ID
+                status='sent'
+            )
+            
+            # Here you would integrate with actual e-prescribing service
+            # For now, just simulate the process
+            prescription.electronic_routing_id = f"EPCS{prescription.id}"
+            prescription.save()
+            
+        except Exception as e:
+            # Log failed transmission
+            from audit.services.medication_integration import log_e_prescription_transmission
+            log_e_prescription_transmission(
+                user=prescription.prescriber,
+                patient_id=prescription.patient.id,
+                prescription_id=prescription.id,
+                pharmacy_id=prescription.pharmacy_name,
+                status='failed'
+            )
+            raise e
+
+    @action(detail=False, methods=['get'])
+    def my_patients(self, request):
+        """Get patients that this provider can prescribe for."""
+        if request.user.role != 'provider':
+            return Response(
+                {'error': 'Only providers can access this endpoint'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        from django.contrib.auth import get_user_model
+        from healthcare.models import MedicalRecord
+        
+        User = get_user_model()
+        
+        # Get patients where this provider is the primary physician
+        patients = User.objects.filter(
+            role='patient',
+            medical_records__primary_physician=request.user
+        ).distinct()
+        
+        # Also include patients from recent appointments
+        from telemedicine.models import Appointment
+        recent_patients = User.objects.filter(
+            role='patient',
+            patient_appointments__provider=request.user,
+            patient_appointments__scheduled_time__gte=timezone.now() - timedelta(days=90)
+        ).distinct()
+        
+        # Combine and serialize
+        all_patients = patients.union(recent_patients)
+        
+        patient_data = []
+        for patient in all_patients:
+            patient_data.append({
+                'id': patient.id,
+                'name': patient.get_full_name(),
+                'email': patient.email,
+                'has_rare_condition': getattr(patient.patient_profile, 'has_rare_condition', False) if hasattr(patient, 'patient_profile') else False
+            })
+        
+        return Response(patient_data)
+    
+    
 class MedicationIntakeViewSet(viewsets.ModelViewSet):
     """API viewset for medication intakes."""
     queryset = MedicationIntake.objects.all()
