@@ -13,7 +13,6 @@ from .services import (
 
 logger = logging.getLogger(__name__)
 
-
 @shared_task
 def sync_wearable_data_for_all_users():
     """
@@ -63,7 +62,6 @@ def sync_wearable_data_for_all_users():
     summary = f"Sync scheduling complete: {success_count} scheduled, {failure_count} failed"
     logger.info(summary)
     return summary
-
 
 @shared_task
 def sync_withings_data(integration_id):
@@ -169,7 +167,6 @@ def sync_withings_data(integration_id):
         
         return f"Failed - {str(e)}"
 
-
 @shared_task
 def sync_fitbit_data(integration_id):
     """Sync data from Fitbit for a specific integration."""
@@ -256,7 +253,6 @@ def sync_fitbit_data(integration_id):
             logger.error("Failed to update sync log")
         
         return f"Failed - {str(e)}"
-
 
 @shared_task
 def sync_google_fit_data(integration_id):
@@ -345,7 +341,6 @@ def sync_google_fit_data(integration_id):
         
         return f"Failed - {str(e)}"
 
-
 @shared_task
 def cleanup_old_wearable_data(days_to_keep=90):
     """Clean up old wearable measurements data."""
@@ -357,7 +352,6 @@ def cleanup_old_wearable_data(days_to_keep=90):
 
     logger.info(f"Deleted {old_count} old wearable measurements")
     return f"Deleted {old_count} records"
-
 
 @shared_task
 def fetch_withings_data_for_all_users():
@@ -517,3 +511,36 @@ def process_pharmaceutical_export(export_id):
         logger.error(f"Error processing pharmaceutical export {export_id}: {str(e)}")
         return f"Export failed: {str(e)}"
 
+@shared_task  
+def sync_all_samsung_health():
+    """Add Samsung to existing sync tasks."""
+    from .models import WearableIntegration
+    
+    # Find existing sync scheduler and add Samsung
+    samsung_integrations = WearableIntegration.objects.filter(
+        integration_type='samsung_health',
+        status='connected',
+        consent_granted=True
+    )
+    
+    for integration in samsung_integrations:
+        try:
+            # Use existing sync pattern
+            sync_samsung_health_data.delay(integration.id)
+        except Exception as e:
+            logger.error(f"Failed to schedule Samsung sync: {str(e)}")
+
+@shared_task
+def sync_samsung_health_data(integration_id):
+    """Individual Samsung sync task."""
+    try:
+        integration = WearableIntegration.objects.get(id=integration_id)
+        
+        # For now, just update last_sync since data comes via app
+        integration.last_sync = timezone.now()
+        integration.save()
+        
+        return "Samsung sync completed"
+    except Exception as e:
+        logger.error(f"Samsung sync failed: {str(e)}")
+        return f"Failed: {str(e)}"

@@ -561,6 +561,34 @@ APNS_BUNDLE_ID = env('APNS_BUNDLE_ID', default='')
 APNS_PRIVATE_KEY_PATH = env('APNS_PRIVATE_KEY_PATH', default='')
 APNS_USE_SANDBOX = env.bool('APNS_USE_SANDBOX', default=True)
 
+# Samsung Health integration settings
+SAMSUNG_HEALTH_CLIENT_ID = env('SAMSUNG_HEALTH_CLIENT_ID', default='')
+SAMSUNG_HEALTH_CLIENT_SECRET = env('SAMSUNG_HEALTH_CLIENT_SECRET', default='')
+SAMSUNG_HEALTH_CALLBACK_URL = env('SAMSUNG_HEALTH_REDIRECT_URI', default='')
+
+# Firebase Cloud Messaging (for Samsung Watch notifications)
+FCM_SERVER_KEY = env('FCM_SERVER_KEY', default='')
+FCM_SENDER_ID = env('FCM_SENDER_ID', default='')
+
+WEARABLE_INTEGRATIONS = {
+    'withings': {
+        'CLIENT_ID': WITHINGS_CLIENT_ID,
+        'CLIENT_SECRET': WITHINGS_CLIENT_SECRET,
+        'CALLBACK_URL': WITHINGS_CALLBACK_URL,
+        'NOTIFICATION_ENABLED': True,
+        'SYNC_FREQUENCY_HOURS': env.int('WITHINGS_SYNC_FREQUENCY', default=1),
+    },
+    'samsung_health': {
+        'CLIENT_ID': SAMSUNG_HEALTH_CLIENT_ID,
+        'CLIENT_SECRET': SAMSUNG_HEALTH_CLIENT_SECRET,
+        'CALLBACK_URL': SAMSUNG_HEALTH_CALLBACK_URL,
+        'FCM_SERVER_KEY': FCM_SERVER_KEY,
+        'FCM_SENDER_ID': FCM_SENDER_ID,
+        'NOTIFICATION_ENABLED': True,
+        'SYNC_FREQUENCY_HOURS': env.int('SAMSUNG_HEALTH_SYNC_FREQUENCY', default=1),
+    }
+}
+
 # Email Configuration
 EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = env('EMAIL_HOST', default='localhost')

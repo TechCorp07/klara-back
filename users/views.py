@@ -26,8 +26,8 @@ from drf_yasg.utils import swagger_auto_schema
 from rest_framework.pagination import PageNumberPagination
 from wearables.models import WearableIntegration, WearableMeasurement          
 from medication.models import AdherenceRecord
-from healthcare.models import MedicalRecord, FamilyHistory, GeneticAnalysis
-from healthcare.serializers import GeneticAnalysisSerializer, GeneticAnalysisCreateSerializer
+from healthcare.models import MedicalRecord, FamilyHistory, GeneticAnalysis, VitalSign
+from healthcare.serializers import GeneticAnalysisSerializer, GeneticAnalysisCreateSerializer, VitalSignSerializer
 from healthcare.services.genetic_analysis_service import GeneticAnalysisService
 
 from .utils import EmailService, SecurityLogger
@@ -463,11 +463,8 @@ class UserViewSet(BaseViewSet):
             refresh_token = JWTAuthenticationManager.create_refresh_token(
                 user, session, ip_address
             )
-            # Generate session token - ADD DEBUG HERE
-            print(f"🔍 BACKEND: Creating session token for session {session.session_id}")
+            # Generate session token
             session_token = SessionManager.create_session_token(session, duration_hours=1)
-            print(f"🔍 BACKEND: Session token created: {session_token[:20]}..." if session_token else "❌ BACKEND: Session token creation failed")
-            
             # Update user login tracking
             user.last_login = timezone.now()
             user.save(update_fields=['last_login'])
@@ -493,10 +490,6 @@ class UserViewSet(BaseViewSet):
             },
             'permissions': JWTAuthenticationManager._get_user_permissions(user),
         }
-        # ADD DEBUG FOR RESPONSE DATA
-        print(f"🔍 BACKEND: Response includes session_token: {bool(response_data.get('session_token'))}")
-        print(f"🔍 BACKEND: Response keys: {list(response_data.keys())}")
-        print(f"🔍 BACKEND: Session token in response: {response_data.get('session_token', 'MISSING')[:20]}..." if response_data.get('session_token') else "❌ BACKEND: No session_token in response")
         
         # Add verification warnings if needed
         if hasattr(user, 'patient_profile') and user.patient_profile:
@@ -2739,12 +2732,13 @@ class PatientViewSet(BaseViewSet):
             },
             {
                 "id": "connect-device",
-                "title": "Connect Smart Watch",
-                "description": "Connect your wearable device for health monitoring",
-                "icon": "device",
-                "href": "/patient/devices/connect",
+                "title": "Connect Samsung Watch" if not self.request.user.wearables_integrations.filter(integration_type='samsung_health', status='connected').exists() else "Manage Devices",
+                "description": "Sync health data and get medication reminders" if not self.request.user.wearables_integrations.filter(integration_type='samsung_health', status='connected').exists() else "Manage your connected devices",
+                "icon": "⌚" if not self.request.user.wearables_integrations.filter(integration_type='samsung_health', status='connected').exists() else "device",
+                "href": "/patient/integrations" if not self.request.user.wearables_integrations.filter(integration_type='samsung_health', status='connected').exists() else "/patient/devices",
                 "priority": "medium",
-                "requires_verification": False
+                "requires_verification": False,
+                "show": True
             },
             {
                 "id": "research-studies",
@@ -3897,7 +3891,126 @@ class PatientViewSet(BaseViewSet):
         
         return None
 
+    @action(detail=False, methods=['get', 'post'])
+    def vitals_list(self, request):
+        """Get or record vital signs for patient."""
+        user = request.user
+        
+        if request.method == 'GET':
+            # Get patient's medical record
+            try:
+                medical_record = MedicalRecord.objects.get(patient=user)
+            except MedicalRecord.DoesNotExist:
+                return Response({"error": "Medical record not found"}, status=404)
+            
+            # Filter vitals
+            queryset = VitalSign.objects.filter(medical_record=medical_record).order_by('-measured_at')
+            
+            # Add filtering
+            date_range = request.query_params.get('date_range')
+            if date_range and date_range != 'all':
+                days_ago = timezone.now() - timedelta(days=int(date_range))
+                queryset = queryset.filter(measured_at__gte=days_ago)
+            
+            vital_type = request.query_params.get('vital_type')
+            if vital_type and vital_type != 'all':
+                queryset = queryset.filter(measurement_type=vital_type)
+            
+            limit = request.query_params.get('limit')
+            if limit:
+                queryset = queryset[:int(limit)]
+            
+            serializer = VitalSignSerializer(queryset, many=True)
+            return Response({'results': serializer.data})
+        
+        elif request.method == 'POST':
+            # Record new vital signs
+            try:
+                medical_record = MedicalRecord.objects.get(patient=user)
+            except MedicalRecord.DoesNotExist:
+                return Response({"error": "Medical record not found"}, status=400)
+            
+            # Create vital sign entries for each measurement type
+            vital_data = request.data
+            created_vitals = []
+            
+            # Map frontend field names to measurement types
+            field_mapping = {
+                'blood_pressure_systolic': 'blood_pressure',
+                'blood_pressure_diastolic': 'blood_pressure',
+                'heart_rate': 'heart_rate',
+                'temperature': 'temperature',
+                'weight': 'weight',
+                'oxygen_saturation': 'oxygen_saturation',
+                'pain_level': 'pain'
+            }
+            
+            for field, value in vital_data.items():
+                if field in field_mapping and value is not None:
+                    measurement_type = field_mapping[field]
+                    
+                    # Handle blood pressure specially (combine systolic/diastolic)
+                    if field == 'blood_pressure_systolic':
+                        diastolic = vital_data.get('blood_pressure_diastolic')
+                        if diastolic:
+                            bp_value = f"{value}/{diastolic}"
+                        else:
+                            bp_value = str(value)
+                        
+                        vital_sign = VitalSign.objects.create(
+                            medical_record=medical_record,
+                            measurement_type='blood_pressure',
+                            value=bp_value,
+                            unit='mmHg',
+                            measured_at=vital_data.get('recorded_at', timezone.now()),
+                            notes=vital_data.get('notes', ''),
+                            created_by=user
+                        )
+                        created_vitals.append(vital_sign)
+                    
+                    elif field != 'blood_pressure_diastolic':  # Skip diastolic since we handle it with systolic
+                        # Determine unit based on measurement type
+                        unit_mapping = {
+                            'heart_rate': 'bpm',
+                            'temperature': '°F',
+                            'weight': 'lbs',
+                            'oxygen_saturation': '%',
+                            'pain': '/10'
+                        }
+                        
+                        vital_sign = VitalSign.objects.create(
+                            medical_record=medical_record,
+                            measurement_type=measurement_type,
+                            value=str(value),
+                            unit=unit_mapping.get(measurement_type, ''),
+                            measured_at=vital_data.get('recorded_at', timezone.now()),
+                            notes=vital_data.get('notes', ''),
+                            created_by=user
+                        )
+                        created_vitals.append(vital_sign)
+            
+            if created_vitals:
+                return Response({"message": "Vitals recorded successfully"}, status=201)
+            else:
+                return Response({"error": "No valid vital signs provided"}, status=400)
 
+    @action(detail=False, methods=['get'])
+    def latest_vitals(self, request):
+        """Get latest vital signs for patient."""
+        user = request.user
+        
+        try:
+            medical_record = MedicalRecord.objects.get(patient=user)
+            latest_vital = VitalSign.objects.filter(medical_record=medical_record).order_by('-measured_at').first()
+            
+            if latest_vital:
+                serializer = VitalSignSerializer(latest_vital)
+                return Response(serializer.data)
+            else:
+                return Response({"message": "No vital signs recorded yet"}, status=404)
+        except MedicalRecord.DoesNotExist:
+            return Response({"error": "Medical record not found"}, status=404)
+        
 class CaregiverRequestViewSet(BaseViewSet):
     """ViewSet for caregiver-patient relationship requests."""
     queryset = CaregiverRequest.objects.all()

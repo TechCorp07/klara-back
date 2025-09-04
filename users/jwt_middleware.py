@@ -43,9 +43,6 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
             print(f"🟢 ADMIN REQUEST: {request.path} - Bypassing JWT completely")
             return None
         
-        # ✅ ADD DEBUG LOGGING
-        print(f"🔍 JWT Middleware processing: {request.path}")
-        
             # Skip static files early
         if (request.path.startswith('/static') or 
             request.path.startswith('/media') or
@@ -66,12 +63,9 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
         ]
 
         if request.path in skip_paths:
-            print(f"✅ Skipping JWT auth for: {request.path}")
             # Set AnonymousUser so DRF doesn't try to authenticate
             request.user = AnonymousUser()
             return None
-        
-        print(f"🔍 Checking auth for: {request.path}")
         
         # Skip authentication for public paths
         if self._is_public_path(request.path):
@@ -80,15 +74,6 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
         
         # Extract JWT token from Authorization header or cookie
         jwt_token = self._extract_jwt_token(request)
-        
-        # ✅ ADD DEBUG LOGGING
-        print(f"🔑 Token extracted: {bool(jwt_token)}")
-        if jwt_token:
-            print(f"🔑 Token preview: {jwt_token[:20]}...")
-            
-        if not jwt_token:
-            print("❌ No token found")
-            return self._create_auth_required_response("Authentication token required")
         
         # Handle session token validation
         if jwt_token == 'session_validated':
@@ -99,9 +84,6 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
             # Regular JWT validation
             is_valid, payload, error_message = JWTAuthenticationManager.validate_access_token(jwt_token)
             
-        # ✅ ADD DEBUG LOGGING
-        print(f"🔍 Token validation result: valid={is_valid}, error={error_message}")
-    
         if not is_valid:
             # Log authentication failure for security monitoring
             self._log_auth_failure(request, error_message)
@@ -142,9 +124,8 @@ class JWTAuthenticationMiddleware(MiddlewareMixin):
         """
         Extract JWT token from Authorization header or session token.
         """
-        # ✅ ADD DEBUG LOGGING
+        
         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-        print(f"🔍 Auth header: {auth_header[:30]}..." if auth_header else "❌ No auth header")
         # Check for Bearer JWT token first
         if auth_header and auth_header.startswith('Bearer '):
             token = auth_header[7:]
