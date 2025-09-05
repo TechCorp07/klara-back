@@ -3695,6 +3695,210 @@ class PatientViewSet(BaseViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
+    @action(detail=False, methods=['get', 'post'])
+    def vitals_list(self, request):
+        """Get or record vital signs for patient."""
+        user = request.user
+        
+        if request.method == 'GET':
+            # Get patient's medical record
+            try:
+                medical_record = MedicalRecord.objects.get(patient=user)
+            except MedicalRecord.DoesNotExist:
+                return Response({"error": "Medical record not found"}, status=404)
+            
+            # Filter vitals
+            queryset = VitalSign.objects.filter(medical_record=medical_record).order_by('-measured_at')
+            
+            # Add filtering
+            date_range = request.query_params.get('date_range')
+            if date_range and date_range != 'all':
+                days_ago = timezone.now() - timedelta(days=int(date_range))
+                queryset = queryset.filter(measured_at__gte=days_ago)
+            
+            vital_type = request.query_params.get('vital_type')
+            if vital_type and vital_type != 'all':
+                queryset = queryset.filter(measurement_type=vital_type)
+            
+            limit = request.query_params.get('limit')
+            if limit:
+                queryset = queryset[:int(limit)]
+            
+            serializer = VitalSignSerializer(queryset, many=True)
+            return Response({'results': serializer.data})
+        
+        elif request.method == 'POST':
+            # Record new vital signs
+            try:
+                medical_record = MedicalRecord.objects.get(patient=user)
+            except MedicalRecord.DoesNotExist:
+                return Response({"error": "Medical record not found"}, status=400)
+            
+            # Create vital sign entries for each measurement type
+            vital_data = request.data
+            created_vitals = []
+            
+            # Map frontend field names to measurement types
+            field_mapping = {
+                'blood_pressure_systolic': 'blood_pressure',
+                'blood_pressure_diastolic': 'blood_pressure',
+                'heart_rate': 'heart_rate',
+                'temperature': 'temperature',
+                'weight': 'weight',
+                'oxygen_saturation': 'oxygen_saturation',
+                'pain_level': 'pain'
+            }
+            
+            for field, value in vital_data.items():
+                if field in field_mapping and value is not None:
+                    measurement_type = field_mapping[field]
+                    
+                    # Handle blood pressure specially (combine systolic/diastolic)
+                    if field == 'blood_pressure_systolic':
+                        diastolic = vital_data.get('blood_pressure_diastolic')
+                        if diastolic:
+                            bp_value = f"{value}/{diastolic}"
+                        else:
+                            bp_value = str(value)
+                        
+                        vital_sign = VitalSign.objects.create(
+                            medical_record=medical_record,
+                            measurement_type='blood_pressure',
+                            value=bp_value,
+                            unit='mmHg',
+                            measured_at=vital_data.get('recorded_at', timezone.now()),
+                            notes=vital_data.get('notes', ''),
+                            created_by=user
+                        )
+                        created_vitals.append(vital_sign)
+                    
+                    elif field != 'blood_pressure_diastolic':  # Skip diastolic since we handle it with systolic
+                        # Determine unit based on measurement type
+                        unit_mapping = {
+                            'heart_rate': 'bpm',
+                            'temperature': '°F',
+                            'weight': 'lbs',
+                            'oxygen_saturation': '%',
+                            'pain': '/10'
+                        }
+                        
+                        vital_sign = VitalSign.objects.create(
+                            medical_record=medical_record,
+                            measurement_type=measurement_type,
+                            value=str(value),
+                            unit=unit_mapping.get(measurement_type, ''),
+                            measured_at=vital_data.get('recorded_at', timezone.now()),
+                            notes=vital_data.get('notes', ''),
+                            created_by=user
+                        )
+                        created_vitals.append(vital_sign)
+            
+            if created_vitals:
+                return Response({"message": "Vitals recorded successfully"}, status=201)
+            else:
+                return Response({"error": "No valid vital signs provided"}, status=400)
+    
+    @action(detail=False, methods=['get'])
+    def latest_vitals(self, request):
+        """Get latest vital signs for patient."""
+        user = request.user
+        
+        try:
+            medical_record = MedicalRecord.objects.get(patient=user)
+            
+            # Get all recent vitals (last 30 days) to build a complete picture
+            recent_date = timezone.now() - timedelta(days=30)
+            recent_vitals = VitalSign.objects.filter(
+                medical_record=medical_record,
+                measured_at__gte=recent_date
+            ).order_by('-measured_at')
+            
+            if not recent_vitals.exists():
+                return Response({"message": "No vital signs recorded yet"}, status=404)
+            
+            # Build the expected frontend format
+            vital_data = {
+                'blood_pressure_systolic': None,
+                'blood_pressure_diastolic': None,
+                'heart_rate': None,
+                'temperature': None,
+                'weight': None,
+                'oxygen_saturation': None,
+                'pain_level': None,
+                'notes': '',
+                'recorded_at': None
+            }
+            
+            # Get the most recent measurement for each type
+            latest_by_type = {}
+            for vital in recent_vitals:
+                if vital.measurement_type not in latest_by_type:
+                    latest_by_type[vital.measurement_type] = vital
+            
+            # Convert to frontend format
+            for measurement_type, vital in latest_by_type.items():
+                if measurement_type == 'blood_pressure' and '/' in vital.value:
+                    try:
+                        systolic, diastolic = vital.value.split('/')
+                        vital_data['blood_pressure_systolic'] = float(systolic)
+                        vital_data['blood_pressure_diastolic'] = float(diastolic)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+                elif measurement_type == 'heart_rate':
+                    try:
+                        vital_data['heart_rate'] = float(vital.value)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+                elif measurement_type == 'temperature':
+                    try:
+                        vital_data['temperature'] = float(vital.value)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+                elif measurement_type == 'weight':
+                    try:
+                        vital_data['weight'] = float(vital.value)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+                elif measurement_type == 'oxygen_saturation':
+                    try:
+                        vital_data['oxygen_saturation'] = float(vital.value)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+                elif measurement_type == 'pain':
+                    try:
+                        vital_data['pain_level'] = float(vital.value)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+            
+            # Use the most recent timestamp if no individual timestamp was set
+            if not vital_data['recorded_at'] and recent_vitals:
+                vital_data['recorded_at'] = recent_vitals.first().measured_at.isoformat()
+            
+            # Get the most recent notes
+            vital_with_notes = recent_vitals.exclude(notes='').first()
+            if vital_with_notes:
+                vital_data['notes'] = vital_with_notes.notes
+            
+            return Response(vital_data)
+            
+        except MedicalRecord.DoesNotExist:
+            return Response({"error": "Medical record not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error fetching latest vitals for user {user.id}: {str(e)}")
+            return Response({"error": "Unable to fetch latest vitals"}, status=500)
+        
     # Helper methods for calculations
     def _calculate_overall_health_status(self, user, patient_profile, medical_record):
         """Calculate overall health status based on multiple factors."""
@@ -3890,211 +4094,7 @@ class PatientViewSet(BaseViewSet):
             pass
         
         return None
-
-    @action(detail=False, methods=['get', 'post'])
-    def vitals_list(self, request):
-        """Get or record vital signs for patient."""
-        user = request.user
-        
-        if request.method == 'GET':
-            # Get patient's medical record
-            try:
-                medical_record = MedicalRecord.objects.get(patient=user)
-            except MedicalRecord.DoesNotExist:
-                return Response({"error": "Medical record not found"}, status=404)
-            
-            # Filter vitals
-            queryset = VitalSign.objects.filter(medical_record=medical_record).order_by('-measured_at')
-            
-            # Add filtering
-            date_range = request.query_params.get('date_range')
-            if date_range and date_range != 'all':
-                days_ago = timezone.now() - timedelta(days=int(date_range))
-                queryset = queryset.filter(measured_at__gte=days_ago)
-            
-            vital_type = request.query_params.get('vital_type')
-            if vital_type and vital_type != 'all':
-                queryset = queryset.filter(measurement_type=vital_type)
-            
-            limit = request.query_params.get('limit')
-            if limit:
-                queryset = queryset[:int(limit)]
-            
-            serializer = VitalSignSerializer(queryset, many=True)
-            return Response({'results': serializer.data})
-        
-        elif request.method == 'POST':
-            # Record new vital signs
-            try:
-                medical_record = MedicalRecord.objects.get(patient=user)
-            except MedicalRecord.DoesNotExist:
-                return Response({"error": "Medical record not found"}, status=400)
-            
-            # Create vital sign entries for each measurement type
-            vital_data = request.data
-            created_vitals = []
-            
-            # Map frontend field names to measurement types
-            field_mapping = {
-                'blood_pressure_systolic': 'blood_pressure',
-                'blood_pressure_diastolic': 'blood_pressure',
-                'heart_rate': 'heart_rate',
-                'temperature': 'temperature',
-                'weight': 'weight',
-                'oxygen_saturation': 'oxygen_saturation',
-                'pain_level': 'pain'
-            }
-            
-            for field, value in vital_data.items():
-                if field in field_mapping and value is not None:
-                    measurement_type = field_mapping[field]
-                    
-                    # Handle blood pressure specially (combine systolic/diastolic)
-                    if field == 'blood_pressure_systolic':
-                        diastolic = vital_data.get('blood_pressure_diastolic')
-                        if diastolic:
-                            bp_value = f"{value}/{diastolic}"
-                        else:
-                            bp_value = str(value)
-                        
-                        vital_sign = VitalSign.objects.create(
-                            medical_record=medical_record,
-                            measurement_type='blood_pressure',
-                            value=bp_value,
-                            unit='mmHg',
-                            measured_at=vital_data.get('recorded_at', timezone.now()),
-                            notes=vital_data.get('notes', ''),
-                            created_by=user
-                        )
-                        created_vitals.append(vital_sign)
-                    
-                    elif field != 'blood_pressure_diastolic':  # Skip diastolic since we handle it with systolic
-                        # Determine unit based on measurement type
-                        unit_mapping = {
-                            'heart_rate': 'bpm',
-                            'temperature': '°F',
-                            'weight': 'lbs',
-                            'oxygen_saturation': '%',
-                            'pain': '/10'
-                        }
-                        
-                        vital_sign = VitalSign.objects.create(
-                            medical_record=medical_record,
-                            measurement_type=measurement_type,
-                            value=str(value),
-                            unit=unit_mapping.get(measurement_type, ''),
-                            measured_at=vital_data.get('recorded_at', timezone.now()),
-                            notes=vital_data.get('notes', ''),
-                            created_by=user
-                        )
-                        created_vitals.append(vital_sign)
-            
-            if created_vitals:
-                return Response({"message": "Vitals recorded successfully"}, status=201)
-            else:
-                return Response({"error": "No valid vital signs provided"}, status=400)
-
-    @action(detail=False, methods=['get'])
-    def latest_vitals(self, request):
-        """Get latest vital signs for patient."""
-        user = request.user
-        
-        try:
-            medical_record = MedicalRecord.objects.get(patient=user)
-            
-            # Get all recent vitals (last 30 days) to build a complete picture
-            recent_date = timezone.now() - timedelta(days=30)
-            recent_vitals = VitalSign.objects.filter(
-                medical_record=medical_record,
-                measured_at__gte=recent_date
-            ).order_by('-measured_at')
-            
-            if not recent_vitals.exists():
-                return Response({"message": "No vital signs recorded yet"}, status=404)
-            
-            # Build the expected frontend format
-            vital_data = {
-                'blood_pressure_systolic': None,
-                'blood_pressure_diastolic': None,
-                'heart_rate': None,
-                'temperature': None,
-                'weight': None,
-                'oxygen_saturation': None,
-                'pain_level': None,
-                'notes': '',
-                'recorded_at': None
-            }
-            
-            # Get the most recent measurement for each type
-            latest_by_type = {}
-            for vital in recent_vitals:
-                if vital.measurement_type not in latest_by_type:
-                    latest_by_type[vital.measurement_type] = vital
-            
-            # Convert to frontend format
-            for measurement_type, vital in latest_by_type.items():
-                if measurement_type == 'blood_pressure' and '/' in vital.value:
-                    try:
-                        systolic, diastolic = vital.value.split('/')
-                        vital_data['blood_pressure_systolic'] = float(systolic)
-                        vital_data['blood_pressure_diastolic'] = float(diastolic)
-                        if not vital_data['recorded_at']:
-                            vital_data['recorded_at'] = vital.measured_at.isoformat()
-                    except ValueError:
-                        pass
-                elif measurement_type == 'heart_rate':
-                    try:
-                        vital_data['heart_rate'] = float(vital.value)
-                        if not vital_data['recorded_at']:
-                            vital_data['recorded_at'] = vital.measured_at.isoformat()
-                    except ValueError:
-                        pass
-                elif measurement_type == 'temperature':
-                    try:
-                        vital_data['temperature'] = float(vital.value)
-                        if not vital_data['recorded_at']:
-                            vital_data['recorded_at'] = vital.measured_at.isoformat()
-                    except ValueError:
-                        pass
-                elif measurement_type == 'weight':
-                    try:
-                        vital_data['weight'] = float(vital.value)
-                        if not vital_data['recorded_at']:
-                            vital_data['recorded_at'] = vital.measured_at.isoformat()
-                    except ValueError:
-                        pass
-                elif measurement_type == 'oxygen_saturation':
-                    try:
-                        vital_data['oxygen_saturation'] = float(vital.value)
-                        if not vital_data['recorded_at']:
-                            vital_data['recorded_at'] = vital.measured_at.isoformat()
-                    except ValueError:
-                        pass
-                elif measurement_type == 'pain':
-                    try:
-                        vital_data['pain_level'] = float(vital.value)
-                        if not vital_data['recorded_at']:
-                            vital_data['recorded_at'] = vital.measured_at.isoformat()
-                    except ValueError:
-                        pass
-            
-            # Use the most recent timestamp if no individual timestamp was set
-            if not vital_data['recorded_at'] and recent_vitals:
-                vital_data['recorded_at'] = recent_vitals.first().measured_at.isoformat()
-            
-            # Get the most recent notes
-            vital_with_notes = recent_vitals.exclude(notes='').first()
-            if vital_with_notes:
-                vital_data['notes'] = vital_with_notes.notes
-            
-            return Response(vital_data)
-            
-        except MedicalRecord.DoesNotExist:
-            return Response({"error": "Medical record not found"}, status=404)
-        except Exception as e:
-            logger.error(f"Error fetching latest vitals for user {user.id}: {str(e)}")
-            return Response({"error": "Unable to fetch latest vitals"}, status=500)
-        
+    
 class CaregiverRequestViewSet(BaseViewSet):
     """ViewSet for caregiver-patient relationship requests."""
     queryset = CaregiverRequest.objects.all()
