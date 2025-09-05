@@ -4001,15 +4001,99 @@ class PatientViewSet(BaseViewSet):
         
         try:
             medical_record = MedicalRecord.objects.get(patient=user)
-            latest_vital = VitalSign.objects.filter(medical_record=medical_record).order_by('-measured_at').first()
             
-            if latest_vital:
-                serializer = VitalSignSerializer(latest_vital)
-                return Response(serializer.data)
-            else:
+            # Get all recent vitals (last 30 days) to build a complete picture
+            recent_date = timezone.now() - timedelta(days=30)
+            recent_vitals = VitalSign.objects.filter(
+                medical_record=medical_record,
+                measured_at__gte=recent_date
+            ).order_by('-measured_at')
+            
+            if not recent_vitals.exists():
                 return Response({"message": "No vital signs recorded yet"}, status=404)
+            
+            # Build the expected frontend format
+            vital_data = {
+                'blood_pressure_systolic': None,
+                'blood_pressure_diastolic': None,
+                'heart_rate': None,
+                'temperature': None,
+                'weight': None,
+                'oxygen_saturation': None,
+                'pain_level': None,
+                'notes': '',
+                'recorded_at': None
+            }
+            
+            # Get the most recent measurement for each type
+            latest_by_type = {}
+            for vital in recent_vitals:
+                if vital.measurement_type not in latest_by_type:
+                    latest_by_type[vital.measurement_type] = vital
+            
+            # Convert to frontend format
+            for measurement_type, vital in latest_by_type.items():
+                if measurement_type == 'blood_pressure' and '/' in vital.value:
+                    try:
+                        systolic, diastolic = vital.value.split('/')
+                        vital_data['blood_pressure_systolic'] = float(systolic)
+                        vital_data['blood_pressure_diastolic'] = float(diastolic)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+                elif measurement_type == 'heart_rate':
+                    try:
+                        vital_data['heart_rate'] = float(vital.value)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+                elif measurement_type == 'temperature':
+                    try:
+                        vital_data['temperature'] = float(vital.value)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+                elif measurement_type == 'weight':
+                    try:
+                        vital_data['weight'] = float(vital.value)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+                elif measurement_type == 'oxygen_saturation':
+                    try:
+                        vital_data['oxygen_saturation'] = float(vital.value)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+                elif measurement_type == 'pain':
+                    try:
+                        vital_data['pain_level'] = float(vital.value)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+            
+            # Use the most recent timestamp if no individual timestamp was set
+            if not vital_data['recorded_at'] and recent_vitals:
+                vital_data['recorded_at'] = recent_vitals.first().measured_at.isoformat()
+            
+            # Get the most recent notes
+            vital_with_notes = recent_vitals.exclude(notes='').first()
+            if vital_with_notes:
+                vital_data['notes'] = vital_with_notes.notes
+            
+            return Response(vital_data)
+            
         except MedicalRecord.DoesNotExist:
             return Response({"error": "Medical record not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error fetching latest vitals for user {user.id}: {str(e)}")
+            return Response({"error": "Unable to fetch latest vitals"}, status=500)
         
 class CaregiverRequestViewSet(BaseViewSet):
     """ViewSet for caregiver-patient relationship requests."""
