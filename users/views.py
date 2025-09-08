@@ -3410,7 +3410,7 @@ class PatientViewSet(BaseViewSet):
                 'immediate_family': [],
                 'extended_family': []
             })
-
+    
     @action(detail=False, methods=['post'], url_path='family-history')
     def update_family_history(self, request):
         """Update patient's family medical history."""
@@ -3566,7 +3566,7 @@ class PatientViewSet(BaseViewSet):
             return Response({
                 'error': 'Failed to retrieve genetic analysis history.'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
     @action(detail=False, methods=['post'], url_path='family-history/genetic-analysis/regenerate')
     def regenerate_genetic_analysis(self, request):
         """Regenerate genetic analysis with updated family history."""
