@@ -3698,34 +3698,136 @@ class PatientViewSet(BaseViewSet):
         user = request.user
         
         if request.method == 'GET':
-            # Get patient's medical record
             try:
                 medical_record = MedicalRecord.objects.get(patient=user)
             except MedicalRecord.DoesNotExist:
                 return Response({"error": "Medical record not found"}, status=404)
             
-            # Filter vitals
-            queryset = VitalSign.objects.filter(medical_record=medical_record).order_by('-measured_at')
+            # Get query parameters with defaults
+            limit = int(request.query_params.get('limit', 30))
+            offset = int(request.query_params.get('offset', 0))
+            ordering = request.query_params.get('ordering', '-measured_at')
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
             
-            # Add filtering
-            date_range = request.query_params.get('date_range')
-            if date_range and date_range != 'all':
-                days_ago = timezone.now() - timedelta(days=int(date_range))
-                queryset = queryset.filter(measured_at__gte=days_ago)
+            # Build base queryset
+            queryset = VitalSign.objects.filter(medical_record=medical_record)
             
-            vital_type = request.query_params.get('vital_type')
-            if vital_type and vital_type != 'all':
-                queryset = queryset.filter(measurement_type=vital_type)
+            # Apply date filtering
+            if start_date:
+                try:
+                    start_dt = timezone.datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                    queryset = queryset.filter(measured_at__gte=start_dt)
+                except ValueError:
+                    pass
+                    
+            if end_date:
+                try:
+                    end_dt = timezone.datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                    queryset = queryset.filter(measured_at__lte=end_dt)
+                except ValueError:
+                    pass
             
-            limit = request.query_params.get('limit')
-            if limit:
-                queryset = queryset[:int(limit)]
+            # Apply ordering
+            if ordering.lstrip('-') in ['measured_at', 'created_at']:
+                queryset = queryset.order_by(ordering)
+            else:
+                queryset = queryset.order_by('-measured_at')
             
-            serializer = VitalSignSerializer(queryset, many=True)
-            return Response({'results': serializer.data})
+            # Get total count for pagination
+            total_count = queryset.count()
+            
+            # Group vitals by date/time to create consolidated records
+            vitals_grouped = {}
+            for vital in queryset:
+                # Use date as key for grouping (you might want to use datetime for more precision)
+                date_key = vital.measured_at.date().isoformat()
+                
+                if date_key not in vitals_grouped:
+                    vitals_grouped[date_key] = {
+                        'id': vital.id,  # Use first vital's ID
+                        'recorded_date': vital.measured_at.isoformat(),
+                        'blood_pressure_systolic': None,
+                        'blood_pressure_diastolic': None,
+                        'heart_rate': None,
+                        'temperature': None,
+                        'weight': None,
+                        'oxygen_saturation': None,
+                        'pain_level': None,
+                        'notes': vital.notes or '',
+                    }
+                
+                # Map measurement types to frontend fields
+                vital_record = vitals_grouped[date_key]
+                
+                if vital.measurement_type == 'blood_pressure' and '/' in vital.value:
+                    try:
+                        systolic, diastolic = vital.value.split('/')
+                        vital_record['blood_pressure_systolic'] = int(systolic)
+                        vital_record['blood_pressure_diastolic'] = int(diastolic)
+                    except (ValueError, IndexError):
+                        pass
+                elif vital.measurement_type == 'heart_rate':
+                    try:
+                        vital_record['heart_rate'] = int(float(vital.value))
+                    except (ValueError, TypeError):
+                        pass
+                elif vital.measurement_type == 'temperature':
+                    try:
+                        vital_record['temperature'] = float(vital.value)
+                    except (ValueError, TypeError):
+                        pass
+                elif vital.measurement_type == 'weight':
+                    try:
+                        vital_record['weight'] = float(vital.value)
+                    except (ValueError, TypeError):
+                        pass
+                elif vital.measurement_type == 'oxygen_saturation':
+                    try:
+                        vital_record['oxygen_saturation'] = int(float(vital.value))
+                    except (ValueError, TypeError):
+                        pass
+                elif vital.measurement_type == 'pain':
+                    try:
+                        vital_record['pain_level'] = int(float(vital.value))
+                    except (ValueError, TypeError):
+                        pass
+            
+            # Convert to list and sort by date (newest first)
+            results = list(vitals_grouped.values())
+            results.sort(key=lambda x: x['recorded_date'], reverse=True)
+            
+            # Apply pagination to grouped results
+            paginated_results = results[offset:offset + limit]
+            
+            # Build pagination response
+            response_data = {
+                'results': paginated_results,
+                'count': len(results),  # Count of grouped records
+                'next': None,
+                'previous': None
+            }
+            
+            # Add pagination links
+            if offset + limit < len(results):
+                response_data['next'] = f"?limit={limit}&offset={offset + limit}"
+                if start_date:
+                    response_data['next'] += f"&start_date={start_date}"
+                if end_date:
+                    response_data['next'] += f"&end_date={end_date}"
+            
+            if offset > 0:
+                prev_offset = max(0, offset - limit)
+                response_data['previous'] = f"?limit={limit}&offset={prev_offset}"
+                if start_date:
+                    response_data['previous'] += f"&start_date={start_date}"
+                if end_date:
+                    response_data['previous'] += f"&end_date={end_date}"
+            
+            return Response(response_data)
         
         elif request.method == 'POST':
-            # Record new vital signs
+            # Your existing POST logic remains the same
             try:
                 medical_record = MedicalRecord.objects.get(patient=user)
             except MedicalRecord.DoesNotExist:
