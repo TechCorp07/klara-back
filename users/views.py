@@ -3566,7 +3566,7 @@ class PatientViewSet(BaseViewSet):
             return Response({
                 'error': 'Failed to retrieve genetic analysis history.'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+    
     @action(detail=False, methods=['post'], url_path='family-history/genetic-analysis/regenerate')
     def regenerate_genetic_analysis(self, request):
         """Regenerate genetic analysis with updated family history."""
@@ -4010,83 +4010,6 @@ class PatientViewSet(BaseViewSet):
             logger.error(f"Error fetching latest vitals for user {user.id}: {str(e)}")
             return Response({"error": "Unable to fetch latest vitals"}, status=500)
     
-    @action(detail=False, methods=['post'])
-    def record_vitals(self, request):
-        """Record new vital signs for patient."""
-        import logging
-        from healthcare.models import MedicalRecord, VitalSign
-        
-        logger = logging.getLogger(__name__)
-        user = request.user
-        
-        try:
-            medical_record = MedicalRecord.objects.get(patient=user)
-            vital_data = request.data
-            
-            created_vitals = []
-            
-            # Map frontend field names to measurement types
-            field_mapping = {
-                'blood_pressure_systolic': 'blood_pressure',
-                'blood_pressure_diastolic': 'blood_pressure', 
-                'heart_rate': 'heart_rate',
-                'temperature': 'temperature',
-                'weight': 'weight',
-                'oxygen_saturation': 'oxygen_saturation',
-                'pain_level': 'pain'
-            }
-            
-            # Handle blood pressure specially (combine systolic/diastolic)
-            if vital_data.get('blood_pressure_systolic') and vital_data.get('blood_pressure_diastolic'):
-                bp_value = f"{vital_data['blood_pressure_systolic']}/{vital_data['blood_pressure_diastolic']}"
-                vital_sign = VitalSign.objects.create(
-                    medical_record=medical_record,
-                    measurement_type='blood_pressure',
-                    value=bp_value,
-                    unit='mmHg',
-                    measured_at=vital_data.get('recorded_at', timezone.now()),
-                    notes=vital_data.get('notes', ''),
-                    created_by=user
-                )
-                created_vitals.append(vital_sign)
-            
-            # Handle other vital signs
-            for field, measurement_type in field_mapping.items():
-                if field.startswith('blood_pressure'):
-                    continue  # Already handled above
-                    
-                value = vital_data.get(field)
-                if value:
-                    unit_mapping = {
-                        'heart_rate': 'bpm',
-                        'temperature': '°F',
-                        'weight': 'lbs',
-                        'oxygen_saturation': '%',
-                        'pain': '/10'
-                    }
-                    
-                    vital_sign = VitalSign.objects.create(
-                        medical_record=medical_record,
-                        measurement_type=measurement_type,
-                        value=str(value),
-                        unit=unit_mapping.get(measurement_type, ''),
-                        measured_at=vital_data.get('recorded_at', timezone.now()),
-                        notes=vital_data.get('notes', ''),
-                        created_by=user
-                    )
-                    created_vitals.append(vital_sign)
-            
-            if created_vitals:
-                return Response({"message": "Vitals recorded successfully"}, status=201)
-            else:
-                return Response({"error": "No valid vital signs provided"}, status=400)
-                
-        except MedicalRecord.DoesNotExist:
-            return Response({"error": "Medical record not found"}, status=404)
-        except Exception as e:
-            logger.error(f"Error recording vitals for user {user.id}: {str(e)}")
-            return Response({"error": "Unable to record vitals"}, status=500)
-       
     # Helper methods for calculations
     def _calculate_overall_health_status(self, user, patient_profile, medical_record):
         """Calculate overall health status based on multiple factors."""

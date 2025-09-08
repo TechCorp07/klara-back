@@ -88,7 +88,7 @@ urlpatterns = [
     
     # Vital signs endpoints
     path('patient/vitals/latest/', PatientViewSet.as_view({'get': 'latest_vitals'}), name='patient-latest-vitals'),
-    path('patient/vitals/', PatientViewSet.as_view({'get': 'vitals_list', 'post': 'record_vitals'}), name='patient-vitals'),
+    path('patient/vitals/', PatientViewSet.as_view({'get': 'vitals_list', 'post': 'vitals_list'}), name='patient-vitals'),
     
     # Wearable device endpoints
     path('patient/wearable-devices/', PatientViewSet.as_view({'get': 'wearable_devices'}), name='patient-wearable-devices'),
