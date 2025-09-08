@@ -27,18 +27,18 @@ from rest_framework.pagination import PageNumberPagination
 from wearables.models import WearableIntegration, WearableMeasurement          
 from medication.models import AdherenceRecord
 from healthcare.models import MedicalRecord, FamilyHistory, GeneticAnalysis, VitalSign
-from healthcare.serializers import GeneticAnalysisSerializer, GeneticAnalysisCreateSerializer, VitalSignSerializer
+from healthcare.serializers import GeneticAnalysisSerializer, VitalSignSerializer
 from healthcare.services.genetic_analysis_service import GeneticAnalysisService
 
 from .utils import EmailService, SecurityLogger
 from .models import (
     AuditTrail, EmergencyAccess, ConsentRecord, HIPAADocument, PharmaceuticalTenant, ResearchConsent,
     PatientProfile, ProviderProfile, PharmcoProfile, CaregiverProfile, TwoFactorDevice,
-    ResearcherProfile, ComplianceProfile, CaregiverRequest, UserSession, RefreshToken
+    ResearcherProfile, ComplianceProfile, CaregiverRequest, UserSession
 )
 from .serializers import (
     AuditTrailSerializer, PharmaceuticalTenantSerializer, ResearchConsentSerializer, UserSerializer, LoginSerializer, TwoFactorAuthSerializer,
-    TwoFactorSetupSerializer, TwoFactorDisableSerializer,
+    TwoFactorSetupSerializer,
     PatientProfileSerializer, ProviderProfileSerializer,
     PharmcoProfileSerializer, CaregiverProfileSerializer,
     ResearcherProfileSerializer, ComplianceProfileSerializer,
@@ -46,7 +46,7 @@ from .serializers import (
     EmergencyAccessSerializer, HIPAADocumentSerializer,
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
     EmailVerificationConfirmSerializer,
-    UserRegistrationSerializer, UserSessionListSerializer
+    UserRegistrationSerializer
 )
 from .permissions import (
     IsAdminOrSelfOnly, IsApprovedUser, IsRoleOwnerOrReadOnly, 
@@ -81,7 +81,6 @@ class BaseViewSet(viewsets.ModelViewSet):
             ip_address=self.get_client_ip(request),
             user_agent=self.get_user_agent(request)
         )
-
 
 class UserViewSet(BaseViewSet):
     """ViewSet for user management."""
@@ -2015,7 +2014,6 @@ class UserViewSet(BaseViewSet):
         
         return Response({'detail': 'User account reactivated'})
 
-
 class PatientProfileViewSet(BaseViewSet):
     """ViewSet for patient profiles."""
     queryset = PatientProfile.objects.all()
@@ -2212,7 +2210,6 @@ class PatientProfileViewSet(BaseViewSet):
             return Response({
                 'detail': 'Failed to complete verification'
             }, status=status.HTTP_400_BAD_REQUEST)
-
 
 class PatientViewSet(BaseViewSet):
     """ViewSet for patient-specific operations."""
@@ -3801,20 +3798,35 @@ class PatientViewSet(BaseViewSet):
     @action(detail=False, methods=['get'])
     def latest_vitals(self, request):
         """Get latest vital signs for patient."""
+        
+        logger = logging.getLogger(__name__)
         user = request.user
         
         try:
             medical_record = MedicalRecord.objects.get(patient=user)
             
-            # Get all recent vitals (last 30 days) to build a complete picture
-            recent_date = timezone.now() - timedelta(days=30)
-            recent_vitals = VitalSign.objects.filter(
-                medical_record=medical_record,
-                measured_at__gte=recent_date
+            # Get all recent vitals WITHOUT slicing first
+            recent_vitals_queryset = VitalSign.objects.filter(
+                medical_record=medical_record
             ).order_by('-measured_at')
             
-            if not recent_vitals.exists():
-                return Response({"message": "No vital signs recorded yet"}, status=404)
+            # Check if any vitals exist BEFORE slicing
+            if not recent_vitals_queryset.exists():
+                # Return empty structure if no vitals
+                return Response({
+                    'blood_pressure_systolic': None,
+                    'blood_pressure_diastolic': None,
+                    'heart_rate': None,
+                    'temperature': None,
+                    'weight': None,
+                    'oxygen_saturation': None,
+                    'pain_level': None,
+                    'notes': '',
+                    'recorded_at': None
+                })
+            
+            # NOW slice to get the recent ones
+            recent_vitals = list(recent_vitals_queryset[:10])
             
             # Build the expected frontend format
             vital_data = {
@@ -3830,28 +3842,24 @@ class PatientViewSet(BaseViewSet):
             }
             
             # Get the most recent measurement for each type
-            latest_by_type = {}
             for vital in recent_vitals:
-                if vital.measurement_type not in latest_by_type:
-                    latest_by_type[vital.measurement_type] = vital
+                measurement_type = vital.measurement_type.lower() if vital.measurement_type else ''
             
-            # Convert to frontend format
-            for measurement_type, vital in latest_by_type.items():
-                if measurement_type == 'blood_pressure' and '/' in vital.value:
+                if measurement_type == 'heart_rate' and vital.value:
+                    try:
+                        vital_data['heart_rate'] = float(vital.value)
+                        if not vital_data['recorded_at']:
+                            vital_data['recorded_at'] = vital.measured_at.isoformat()
+                    except ValueError:
+                        pass
+                elif measurement_type == 'blood_pressure' and vital.value:
                     try:
                         systolic, diastolic = vital.value.split('/')
                         vital_data['blood_pressure_systolic'] = float(systolic)
                         vital_data['blood_pressure_diastolic'] = float(diastolic)
                         if not vital_data['recorded_at']:
                             vital_data['recorded_at'] = vital.measured_at.isoformat()
-                    except ValueError:
-                        pass
-                elif measurement_type == 'heart_rate':
-                    try:
-                        vital_data['heart_rate'] = float(vital.value)
-                        if not vital_data['recorded_at']:
-                            vital_data['recorded_at'] = vital.measured_at.isoformat()
-                    except ValueError:
+                    except (ValueError, AttributeError):
                         pass
                 elif measurement_type == 'temperature':
                     try:
@@ -3859,7 +3867,7 @@ class PatientViewSet(BaseViewSet):
                         if not vital_data['recorded_at']:
                             vital_data['recorded_at'] = vital.measured_at.isoformat()
                     except ValueError:
-                        pass
+                        pass    
                 elif measurement_type == 'weight':
                     try:
                         vital_data['weight'] = float(vital.value)
@@ -3884,12 +3892,13 @@ class PatientViewSet(BaseViewSet):
             
             # Use the most recent timestamp if no individual timestamp was set
             if not vital_data['recorded_at'] and recent_vitals:
-                vital_data['recorded_at'] = recent_vitals.first().measured_at.isoformat()
+                vital_data['recorded_at'] = recent_vitals[0].measured_at.isoformat()
             
-            # Get the most recent notes
-            vital_with_notes = recent_vitals.exclude(notes='').first()
-            if vital_with_notes:
-                vital_data['notes'] = vital_with_notes.notes
+            # Get the most recent notes from the list
+            for vital in recent_vitals:
+                if vital.notes:
+                    vital_data['notes'] = vital.notes
+                    break
             
             return Response(vital_data)
             
@@ -3898,7 +3907,84 @@ class PatientViewSet(BaseViewSet):
         except Exception as e:
             logger.error(f"Error fetching latest vitals for user {user.id}: {str(e)}")
             return Response({"error": "Unable to fetch latest vitals"}, status=500)
+    
+    @action(detail=False, methods=['post'])
+    def record_vitals(self, request):
+        """Record new vital signs for patient."""
+        import logging
+        from healthcare.models import MedicalRecord, VitalSign
         
+        logger = logging.getLogger(__name__)
+        user = request.user
+        
+        try:
+            medical_record = MedicalRecord.objects.get(patient=user)
+            vital_data = request.data
+            
+            created_vitals = []
+            
+            # Map frontend field names to measurement types
+            field_mapping = {
+                'blood_pressure_systolic': 'blood_pressure',
+                'blood_pressure_diastolic': 'blood_pressure', 
+                'heart_rate': 'heart_rate',
+                'temperature': 'temperature',
+                'weight': 'weight',
+                'oxygen_saturation': 'oxygen_saturation',
+                'pain_level': 'pain'
+            }
+            
+            # Handle blood pressure specially (combine systolic/diastolic)
+            if vital_data.get('blood_pressure_systolic') and vital_data.get('blood_pressure_diastolic'):
+                bp_value = f"{vital_data['blood_pressure_systolic']}/{vital_data['blood_pressure_diastolic']}"
+                vital_sign = VitalSign.objects.create(
+                    medical_record=medical_record,
+                    measurement_type='blood_pressure',
+                    value=bp_value,
+                    unit='mmHg',
+                    measured_at=vital_data.get('recorded_at', timezone.now()),
+                    notes=vital_data.get('notes', ''),
+                    created_by=user
+                )
+                created_vitals.append(vital_sign)
+            
+            # Handle other vital signs
+            for field, measurement_type in field_mapping.items():
+                if field.startswith('blood_pressure'):
+                    continue  # Already handled above
+                    
+                value = vital_data.get(field)
+                if value:
+                    unit_mapping = {
+                        'heart_rate': 'bpm',
+                        'temperature': '°F',
+                        'weight': 'lbs',
+                        'oxygen_saturation': '%',
+                        'pain': '/10'
+                    }
+                    
+                    vital_sign = VitalSign.objects.create(
+                        medical_record=medical_record,
+                        measurement_type=measurement_type,
+                        value=str(value),
+                        unit=unit_mapping.get(measurement_type, ''),
+                        measured_at=vital_data.get('recorded_at', timezone.now()),
+                        notes=vital_data.get('notes', ''),
+                        created_by=user
+                    )
+                    created_vitals.append(vital_sign)
+            
+            if created_vitals:
+                return Response({"message": "Vitals recorded successfully"}, status=201)
+            else:
+                return Response({"error": "No valid vital signs provided"}, status=400)
+                
+        except MedicalRecord.DoesNotExist:
+            return Response({"error": "Medical record not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error recording vitals for user {user.id}: {str(e)}")
+            return Response({"error": "Unable to record vitals"}, status=500)
+       
     # Helper methods for calculations
     def _calculate_overall_health_status(self, user, patient_profile, medical_record):
         """Calculate overall health status based on multiple factors."""
@@ -4094,7 +4180,7 @@ class PatientViewSet(BaseViewSet):
             pass
         
         return None
-    
+
 class CaregiverRequestViewSet(BaseViewSet):
     """ViewSet for caregiver-patient relationship requests."""
     queryset = CaregiverRequest.objects.all()
