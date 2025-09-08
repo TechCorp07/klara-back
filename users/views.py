@@ -3410,7 +3410,7 @@ class PatientViewSet(BaseViewSet):
                 'immediate_family': [],
                 'extended_family': []
             })
-    
+
     @action(detail=False, methods=['post'], url_path='family-history')
     def update_family_history(self, request):
         """Update patient's family medical history."""
@@ -3694,6 +3694,10 @@ class PatientViewSet(BaseViewSet):
     
     @action(detail=False, methods=['get', 'post'])
     def vitals_list(self, request):
+        print(f"🔥 vitals_list called! Method: {request.method}")  # Debug line
+        print(f"🔥 User: {request.user}")  # Debug line
+        print(f"🔥 Data: {request.data}")  # Debug line
+        
         """Get or record vital signs for patient."""
         user = request.user
         
