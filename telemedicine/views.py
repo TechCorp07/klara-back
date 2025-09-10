@@ -652,7 +652,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             return Response(dashboard_data)
         
         return Response({'error': 'Caregiver profile not found'}, status=status.HTTP_404_NOT_FOUND)
-
+    
     @action(detail=True, methods=['post'])
     def prepare_rare_disease_consultation(self, request, pk=None):
         """Prepare data for rare disease consultation."""
@@ -692,7 +692,111 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         
         return Response({'error': 'No consultation found'}, status=status.HTTP_404_NOT_FOUND)
 
+    @action(detail=True, methods=['post'])
+    def accept_request(self, request, pk=None):
+        """Allow provider to accept a telemedicine session request."""
+        try:
+            appointment = self.get_object()
+            
+            # Verify provider can accept this request
+            if request.user != appointment.provider:
+                return Response(
+                    {'detail': 'You can only accept your own appointment requests'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            if appointment.status != 'pending':
+                return Response(
+                    {'detail': 'This appointment request is no longer pending'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Update appointment status
+            appointment.status = 'confirmed'
+            appointment.save(update_fields=['status'])
+            
+            # Update consultation if exists
+            consultation = appointment.consultations.first()
+            if consultation:
+                consultation.status = 'scheduled'
+                consultation.save(update_fields=['status'])
+            
+            # Send confirmation to patient
+            from telemedicine.services.notifications_service import telemedicine_notifications
+            telemedicine_notifications.send_appointment_confirmation_with_calendar(appointment)
+            
+            # Return success response
+            return Response({
+                'message': 'Telemedicine session accepted successfully',
+                'appointment_id': appointment.id,
+                'meeting_url': consultation.join_url if consultation else None,
+                'status': 'confirmed'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error accepting appointment request: {str(e)}")
+            return Response(
+                {'detail': 'Failed to accept appointment request'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
+    @action(detail=True, methods=['post'])
+    def deny_request(self, request, pk=None):
+        """Allow provider to deny a telemedicine session request."""
+        try:
+            appointment = self.get_object()
+            
+            # Verify provider can deny this request
+            if request.user != appointment.provider:
+                return Response(
+                    {'detail': 'You can only deny your own appointment requests'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            if appointment.status != 'pending':
+                return Response(
+                    {'detail': 'This appointment request is no longer pending'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get denial reason
+            reason = request.data.get('reason', 'Provider unavailable')
+            
+            # Update appointment status
+            appointment.status = 'cancelled'
+            appointment.notes = f"Denied by provider: {reason}"
+            appointment.save(update_fields=['status', 'notes'])
+            
+            # Cancel Zoom meeting if it exists
+            consultation = appointment.consultations.first()
+            if consultation and consultation.meeting_id:
+                try:
+                    from telemedicine.services import zoom_service
+                    zoom_service.delete_zoom_meeting(consultation.meeting_id)
+                except Exception as e:
+                    logger.warning(f"Failed to cancel Zoom meeting: {str(e)}")
+            
+            # Notify patient of denial
+            from communication.services.notification_service import send_email_notification
+            send_email_notification(
+                user=appointment.patient,
+                title="Telemedicine Session Request Declined",
+                message=f"Your telemedicine session request for {appointment.scheduled_time.strftime('%B %d, %Y at %I:%M %p')} was declined. Reason: {reason}",
+                notification_type='appointment_cancelled'
+            )
+            
+            return Response({
+                'message': 'Telemedicine session request denied',
+                'reason': reason
+            })
+            
+        except Exception as e:
+            logger.error(f"Error denying appointment request: {str(e)}")
+            return Response(
+                {'detail': 'Failed to deny appointment request'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            
 class ConsultationViewSet(viewsets.ModelViewSet):
     """ViewSet for telemedicine consultations."""
     queryset = Consultation.objects.all()

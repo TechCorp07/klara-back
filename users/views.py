@@ -4014,6 +4014,199 @@ class PatientViewSet(BaseViewSet):
             logger.error(f"Error fetching latest vitals for user {user.id}: {str(e)}")
             return Response({"error": "Unable to fetch latest vitals"}, status=500)
     
+    @action(detail=False, methods=['post'])
+    def request_telemedicine_session(self, request):
+        """Request a telemedicine session with a provider by email."""
+        try:
+            # Extract request data
+            provider_email = request.data.get('provider_email', '').strip().lower()
+            session_type = request.data.get('session_type', 'video')
+            urgency = request.data.get('urgency', 'routine')
+            preferred_date = request.data.get('preferred_date')
+            reason = request.data.get('reason', 'Telemedicine consultation request')
+            symptoms = request.data.get('symptoms', '')
+            duration_needed = request.data.get('duration_needed', 30)
+            
+            # Validate required fields
+            if not provider_email:
+                return Response(
+                    {'detail': 'Provider email is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not preferred_date:
+                return Response(
+                    {'detail': 'Preferred date is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validate email format
+            from django.core.validators import validate_email
+            from django.core.exceptions import ValidationError
+            try:
+                validate_email(provider_email)
+            except ValidationError:
+                return Response(
+                    {'detail': 'Invalid provider email format'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Parse preferred date
+            from datetime import datetime
+            try:
+                if isinstance(preferred_date, str):
+                    scheduled_time = datetime.fromisoformat(preferred_date.replace('Z', '+00:00'))
+                else:
+                    scheduled_time = preferred_date
+            except (ValueError, AttributeError):
+                return Response(
+                    {'detail': 'Invalid date format. Please use ISO format.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Look up provider by email or create a temporary provider record
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            
+            try:
+                provider = User.objects.get(email=provider_email, role='provider')
+            except User.DoesNotExist:
+                # For now, we'll create a pending invitation rather than auto-creating provider
+                # This maintains security and requires provider to have an account
+                return Response(
+                    {'detail': 'Provider not found. The provider must have an active account in our system.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Calculate end time
+            end_time = scheduled_time + timezone.timedelta(minutes=int(duration_needed))
+            
+            # Create the telemedicine appointment in pending status
+            from telemedicine.models import Appointment
+            appointment = Appointment.objects.create(
+                patient=request.user,
+                provider=provider,
+                scheduled_time=scheduled_time,
+                end_time=end_time,
+                appointment_type='video_consultation' if session_type == 'video' else 'phone_consultation',
+                reason=reason,
+                status='pending',  # Waiting for provider acceptance
+                priority='urgent' if urgency == 'urgent' else 'routine',
+                duration_minutes=int(duration_needed),
+                notes=symptoms,
+                is_telemedicine=True,
+                reminders_enabled=True
+            )
+            
+            # Create consultation record
+            from telemedicine.models import Consultation
+            consultation = Consultation.objects.create(
+                appointment=appointment,
+                platform='zoom',  # Default to Zoom
+                status='scheduled'
+            )
+            
+            # Create Zoom meeting using your existing service
+            try:
+                from telemedicine.services.platform_service import create_meeting
+                meeting_data = create_meeting(
+                    consultation=consultation,
+                    platform='zoom',
+                    organizer_email=provider.email,
+                    patient_email=request.user.email
+                )
+                
+                # Update consultation with meeting details
+                consultation.meeting_id = meeting_data.get('meeting_id', '')
+                consultation.join_url = meeting_data.get('join_url', '')
+                consultation.password = meeting_data.get('password', '')
+                consultation.host_key = meeting_data.get('host_key', '')
+                consultation.platform_data = meeting_data
+                consultation.save()
+                
+            except Exception as e:
+                # If Zoom meeting creation fails, still create the appointment
+                # Provider can create meeting later when they accept
+                logger.error(f"Failed to create Zoom meeting for appointment {appointment.id}: {str(e)}")
+            
+            # Send email notification to provider with accept/deny links
+            self._send_provider_telemedicine_request_notification(
+                appointment=appointment,
+                consultation=consultation,
+                requesting_patient=request.user
+            )
+            
+            # Send confirmation to patient
+            self._send_patient_telemedicine_request_confirmation(
+                appointment=appointment,
+                requesting_patient=request.user
+            )
+            
+            # Return session details
+            return Response({
+                'session_id': str(appointment.id),
+                'status': 'pending',
+                'message': f'Telemedicine session request sent to {provider_email}. You will receive a notification once the provider responds.',
+                'appointment_id': appointment.id,
+                'scheduled_time': appointment.scheduled_time.isoformat(),
+                'provider_email': provider_email,
+                'meeting_id': consultation.meeting_id if consultation.join_url else None,
+                'join_url': consultation.join_url if consultation.join_url else None
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in request_telemedicine_session: {str(e)}")
+            return Response(
+                {'detail': 'Failed to request telemedicine session. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _send_provider_telemedicine_request_notification(self, appointment, consultation, requesting_patient):
+        """Send email to provider with accept/deny options."""
+        try:
+            # Create accept/deny URLs
+            base_url = settings.FRONTEND_URL or 'http://localhost:3000'
+            accept_url = f"{base_url}/provider/appointments/{appointment.id}/accept"
+            deny_url = f"{base_url}/provider/appointments/{appointment.id}/deny"
+            
+            # Email context
+            context = {
+                'appointment': appointment,
+                'patient': requesting_patient,
+                'consultation': consultation,
+                'accept_url': accept_url,
+                'deny_url': deny_url,
+                'meeting_url': consultation.join_url if consultation.join_url else None,
+                'scheduled_time': appointment.scheduled_time.strftime('%B %d, %Y at %I:%M %p'),
+            }
+            
+            # Send email using your existing notification service
+            from communication.services.notification_service import send_email_notification
+            send_email_notification(
+                user=appointment.provider,
+                title=f"Telemedicine Session Request from {requesting_patient.get_full_name()}",
+                message=f"You have received a telemedicine session request for {appointment.scheduled_time.strftime('%B %d, %Y at %I:%M %p')}",
+                notification_type='appointment_request',
+                extra_context=context
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to send provider notification: {str(e)}")
+    
+    def _send_patient_telemedicine_request_confirmation(self, appointment, requesting_patient):
+        """Send confirmation email to patient."""
+        try:
+            from communication.services.notification_service import send_email_notification
+            send_email_notification(
+                user=requesting_patient,
+                title="Telemedicine Session Request Sent",
+                message=f"Your telemedicine session request has been sent to {appointment.provider.email} for {appointment.scheduled_time.strftime('%B %d, %Y at %I:%M %p')}",
+                notification_type='appointment_confirmation'
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to send patient confirmation: {str(e)}")
+            
     # Helper methods for calculations
     def _calculate_overall_health_status(self, user, patient_profile, medical_record):
         """Calculate overall health status based on multiple factors."""
